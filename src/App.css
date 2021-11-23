@@ -28,6 +28,11 @@
   color: #61dafb;
 }
 
+.map {
+  height: 400px;
+  background-color: #ffeedd;
+}
+
 @keyframes App-logo-spin {
   from {
     transform: rotate(0deg);
@@ -36,3 +41,5 @@
     transform: rotate(360deg);
   }
 }
+
+@import '~leaflet/dist/leaflet.css'
