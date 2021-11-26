@@ -28,7 +28,7 @@
   color: #61dafb;
 }
 
-.map {
+.leaflet-container {
   height: 400px;
   background-color: #ffeedd;
 }
