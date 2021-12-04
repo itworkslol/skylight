@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@babel/core": "7.12.3",
+    "@observablehq/plot": "^0.2.9",
     "@pmmmwh/react-refresh-webpack-plugin": "0.4.3",
     "@svgr/webpack": "5.5.0",
     "@testing-library/jest-dom": "^5.11.4",
@@ -41,8 +42,10 @@
     "jest-resolve": "26.6.0",
     "jest-watch-typeahead": "0.6.1",
     "leaflet": "^1.7.1",
+    "lil-gui": "^0.14.0",
     "mini-css-extract-plugin": "0.11.3",
     "optimize-css-assets-webpack-plugin": "5.0.4",
+    "plot-react": "^1.0.0",
     "pnp-webpack-plugin": "1.6.4",
     "postcss-flexbugs-fixes": "4.2.1",
     "postcss-loader": "3.0.0",

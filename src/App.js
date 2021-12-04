@@ -9,9 +9,14 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import shadowIcon from 'leaflet/dist/images/marker-shadow.png'
 
 import * as THREE from 'three';
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { FirstPersonControls } from "three/examples/jsm/controls/FirstPersonControls";
+import { OrbitControls, MapControls } from "three/examples/jsm/controls/OrbitControls";
+import { MyMapControls } from './MyMapControls';
 import { Paper } from "react-three-paper";
+
+import GUI from 'lil-gui';
+
+import * as Plot from "@observablehq/plot";
+import { PlotFigure } from 'plot-react';
 
 import mapData from './Camperdown small.json'
 
@@ -40,10 +45,12 @@ function latLongToMetres(lat, long) {
 }
 
 function describeBuilding(building) {
+  let name;
   if (building['tags'] !== undefined) {
-    return building['tags']['name'] ?? building['tags']['building'] ?? '';
+    if (building['tags']['name']) name = building['tags']['name'];
+    else if (building['tags']['building'] && building['tags']['building'] != 'yes') name = building['tags']['building'];
   }
-  return '';
+  return name ?? '';
 }
 
 function screenCoords(c) {
@@ -120,6 +127,72 @@ class BuildingMap {
 
 const buildingMap = new BuildingMap(mapData);
 
+const DEG = Math.PI / 180;
+const RAD = 180 / Math.PI;
+
+class WorldClock {
+  constructor(latDeg, longDeg) {
+    this.latDeg = latDeg;
+    this.longDeg = longDeg;
+
+    this.day = 1; // 1 ... 365
+    this.hour = 12.0; // 0 ... 24
+
+    this.dayName = 'Jan 01'; // fake - GUI only
+
+    this.autoplay = ''; // '', 'day', 'hour'
+  }
+
+  setGuiControllers(guiDay, guiDayName, guiHour) {
+    this.guiDay = guiDay;
+    this.guiDayName = guiDayName;
+    this.guiHour = guiHour;
+    this.guiDay.onChange(newDay => { this.updateDayName(newDay); });
+  }
+
+  updateDayName(newDay) {
+    // stringify - use 1970 for max precision (note this year has 365 days)
+    const newDate = new Date(1970, 0, 1);
+    newDate.setTime(new Date(1970, 0, 1).getTime() + (newDay - 1) * 86400000);
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    this.dayName = MONTH_NAMES[newDate.getMonth()] + ' ' + String(newDate.getDate()).padStart(2, '0');
+
+    this.guiDayName?.updateDisplay();
+  }
+
+  setDay(newDay) {
+    this.day = newDay;
+    this.guiDay?.updateDisplay();
+    this.updateDayName(newDay);
+  }
+
+  setHour(newHour) {
+    this.hour = newHour;
+    this.guiHour?.updateDisplay();
+  }
+
+  sunAngle(day, hour)
+  {
+    day = day?? this.day;
+    hour = hour?? this.hour;
+    // Ref: https://www.itacanet.org/the-sun-as-a-source-of-energy/
+    const declination = 23.45*DEG * Math.sin(2*Math.PI * (284 + day) / 365.25);
+    const hourAngle = (12 - hour) * 15*DEG; // approx
+    const altitudeAngle = Math.asin(Math.sin(declination) * Math.sin(this.latDeg*DEG) + Math.cos(declination) * Math.cos(hourAngle) * Math.cos(this.latDeg*DEG));
+    return {hourAngle, altitudeAngle};
+  }
+};
+const worldClock = new WorldClock(LAT_LONG_ORIGIN[0], LAT_LONG_ORIGIN[1]);
+
+const mvpGui = new GUI();
+const mvpGui_Day = mvpGui.add(worldClock, 'day', 1, 365, 1);
+const mvpGui_DayName = mvpGui.add(worldClock, 'dayName');
+mvpGui_DayName.disable();
+const mvpGui_Hour = mvpGui.add(worldClock, 'hour', 0, 24, 0.1);
+mvpGui.add(worldClock, 'autoplay', ['', 'hour', 'day']);
+
+worldClock.setGuiControllers(mvpGui_Day, mvpGui_DayName, mvpGui_Hour);
+
 async function threeMain(canvas)
 {
   // Setup canvas
@@ -142,9 +215,11 @@ async function threeMain(canvas)
   camera.up = new THREE.Vector3( 0, 1, 0 );
   camera.lookAt(0, 0, 0);
 
-  const controls = new OrbitControls(camera, renderer.domElement);
+  const controls = new MyMapControls(camera, renderer.domElement);
   controls.enableDamping = true; // Enables inertia on the camera making it come to a more gradual stop.
   controls.dampingFactor = 0.25; // Inertia factor
+  controls.minAzimuthAngle = 0;
+  controls.maxAzimuthAngle = 0;
 
   // Setup scene
   const scene = new THREE.Scene();
@@ -211,6 +286,25 @@ async function threeMain(canvas)
     scene.add(light);
   }
 
+  const sunLights = Array();
+  function updateSunPosition() {
+    const {hourAngle, altitudeAngle} = worldClock.sunAngle();
+    for (const light of sunLights) {
+      {
+        const lightDistance = 200; // FIXME: should be just outside scene
+        const z = Math.sin(altitudeAngle);
+        const x = Math.cos(altitudeAngle) * Math.sin(hourAngle);
+        const y = Math.cos(altitudeAngle) * Math.cos(hourAngle);
+        light.position.set(x * lightDistance, y * lightDistance, z * lightDistance);
+        if (altitudeAngle < 0) {
+          light.intensity = 0;
+        } else {
+          light.intensity = 1;
+        }
+      }
+    }
+  }
+
   const sky_light_offset = 50;
   for (const [dx, dy, color] of [
       [0, 0, 0xFFFFCC],
@@ -219,11 +313,11 @@ async function threeMain(canvas)
   {
     const intensity = 1;
     const light = new THREE.DirectionalLight(0xFFFFCC, intensity);
-    light.position.set(0, 150, 100);
     light.target.position.set(dx*sky_light_offset, dy*sky_light_offset, 0);
     light.castShadow = true;
     scene.add(light);
     scene.add(light.target);
+    sunLights.push(light);
 
     const helper = new THREE.DirectionalLightHelper(light, 10);
     scene.add(helper);
@@ -235,10 +329,28 @@ async function threeMain(canvas)
     const cameraHelper = new THREE.CameraHelper(light.shadow.camera);
     scene.add(cameraHelper);
   }
+  updateSunPosition(); // initialise
 
   //...Render loop without requestAnimationFrame()
-  function render(time) {
-    controls.update()
+  function render(timeMs) {
+    controls.update();
+
+    if (worldClock.autoplay === 'day') {
+      worldClock.setDay((worldClock.day + 1) % 365 + 1);
+    } else if (worldClock.autoplay === 'hour') {
+      while (true) {
+        worldClock.setHour((Math.round(worldClock.hour*10) + 1) % 240 / 10.0);
+        if (worldClock.hour < 0.0001) {
+          worldClock.setHour(0);
+          worldClock.setDay((worldClock.day + 1) % 365 + 1);
+        }
+        const {altitudeAngle} = worldClock.sunAngle();
+        if (altitudeAngle > 0) break;
+      }
+    }
+
+    updateSunPosition();
+
     renderer.render(scene, camera);
   }
 
@@ -266,6 +378,14 @@ function OSM() {
   )
 }
 
+const sampleSunAngle = Array();
+for (let minute = 0; minute <= 1440; minute++) {
+  const hour = minute/60.0;
+  const {altitudeAngle, hourAngle} = worldClock.sunAngle(1, hour);
+  sampleSunAngle.push({hour, altitudeAngle: altitudeAngle*RAD, hourAngle: hourAngle*RAD});
+}
+const sunPlot = Plot.dot(sampleSunAngle, {x: 'hourAngle', y: 'altitudeAngle'});
+
 function App() {
   return (
     <div className="container">
@@ -276,6 +396,12 @@ function App() {
       <Paper
           script={threeMain}
           style={{height: '800px', width: '1000px'}}
+      />
+
+      <PlotFigure
+        options={
+          {marks: [sunPlot]}
+        }
       />
     </div>
   );
