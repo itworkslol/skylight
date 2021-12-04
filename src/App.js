@@ -10,6 +10,7 @@ import shadowIcon from 'leaflet/dist/images/marker-shadow.png'
 
 import * as THREE from 'three';
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { FirstPersonControls } from "three/examples/jsm/controls/FirstPersonControls";
 import { Paper } from "react-three-paper";
 
 import mapData from './Camperdown small.json'
@@ -22,14 +23,14 @@ L.Icon.Default.mergeOptions({
   shadowUrl: shadowIcon,
 });
 
-const initialPosition = [-33.885, 151.178] // Sydney
+const initialPosition = [-33.887, 151.179] // Sydney
 //const initialPosition = [51.505, -0.09] // London
 const sydneyCityBbox = [
   -33.920, 151.155, -33.850, 151.235
 ]
 
 const LAT_LONG_ORIGIN = initialPosition;
-const BUILDING_LEVEL_HEIGHT = 3.0;
+const BUILDING_LEVEL_HEIGHT = 4.0;
 
 function latLongToMetres(lat, long) {
   const R = 6370000;
@@ -99,8 +100,19 @@ class BuildingMap {
   buildingHeight(building_id) {
     const info = this.buildings.get(building_id)['tags'];
     if (info !== undefined) {
-      if (info['height'] !== undefined) return parseFloat(info['height']);
-      if (info['building:levels'] !== undefined) return parseFloat(info['building:levels']) * BUILDING_LEVEL_HEIGHT;
+      let levelHeight, exactHeight;
+      if (info['building:levels'] !== undefined) {
+        levelHeight = parseFloat(info['building:levels']) * BUILDING_LEVEL_HEIGHT;
+      }
+      if (info['height'] !== undefined) {
+        exactHeight = parseFloat(info['height']);
+      }
+      if (levelHeight && exactHeight) {
+        // prefer height if both are consistent, otherwise prefer levels (more reliably tagged)
+        if (levelHeight > 0.5 * exactHeight && exactHeight > 0.5 * levelHeight) return exactHeight;
+        return levelHeight;
+      }
+      return exactHeight ?? levelHeight;
     }
     return 0;
   }
@@ -119,6 +131,8 @@ async function threeMain(canvas)
   const aspectRatio = canvas.clientWidth / canvas.clientHeight;
   renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
+  renderer.shadowMap.enabled = true;
+
   // Setup camera
   const fov = 90;
   const near = 0.1;
@@ -136,9 +150,17 @@ async function threeMain(canvas)
   const scene = new THREE.Scene();
   {
     const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshBasicMaterial({color: 0x44aa88});
+    const material = new THREE.MeshLambertMaterial({color: 0x44aa88});
     const cube = new THREE.Mesh(geometry, material);
     scene.add(cube);
+  }
+
+  {
+    const ground = new THREE.PlaneGeometry(1000, 1000);
+    const material = new THREE.MeshLambertMaterial({color: 0xcc9966});
+    const mesh = new THREE.Mesh(ground, material).translateZ(-0.1);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
   }
 
   for (const [building_id, _] of buildingMap.buildings)
@@ -150,38 +172,73 @@ async function threeMain(canvas)
       const extrudeSettings = {
         steps: 1,
         depth: height,
-        bevelEnabled: true,
+        bevelEnabled: false,
         bevelThickness: 0.5,
         bevelSize: 0.5,
-        bevelOffset: 0,
-        bevelSegments: 1
+        bevelSegments: 1,
       };
       geometry = new THREE.ExtrudeGeometry( footprint, extrudeSettings );
     } else {
       geometry = new THREE.ShapeGeometry( footprint );
     }
-    const material = new THREE.MeshBasicMaterial( { color: 0xffdddd } );
-    const mesh = new THREE.Mesh( geometry, material ) ;
-    mesh.position.set(originX, originY, 0);
-    scene.add( mesh );
+
+    if (true) {
+      const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
+      const mesh = new THREE.Mesh( geometry, material ) ;
+      mesh.position.set(originX, originY, 0);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add( mesh );
+    }
+
+    if (false) {
+      const edges = new THREE.EdgesGeometry(geometry, 0);
+      const edgesMat = new THREE.MeshBasicMaterial({color: 0xffffff });
+      const edgesMesh = new THREE.Mesh(edges, edgesMat);
+      edgesMesh.position.set(originX+0.9, originY+0.9, 0.9);
+      scene.add(edgesMesh);
+    }
+
+    if (false) {
+      const material = new THREE.MeshLambertMaterial( { color: 0xcc9999 } );
+      const mesh = new THREE.Mesh( geometry, material ) ;
+      mesh.position.set(originX+0.1, originY+0.1, 0.1);
+      scene.add( mesh );
+    }
   }
 
-  if (false)
+  // Lighting
+  if(true)
   {
-    const heartShape = new THREE.Shape();
-    const x = 0, y = 0;
-    heartShape.moveTo( 5, 5 );
-    heartShape.bezierCurveTo( 5, 5, 4, y, x, y );
-    heartShape.bezierCurveTo( - 6, y, x - 6, 7,x - 6, 7 );
-    heartShape.bezierCurveTo( - 6, 11, x - 3, 15.4, 5, 19 );
-    heartShape.bezierCurveTo( 12, 15.4, 16, 11, 16, 7 );
-    heartShape.bezierCurveTo( 16, 7, 16, y, 10, y );
-    heartShape.bezierCurveTo( 7, y, 5, 5, 5, 5 );
+    const color = 0xFFFFFF;
+    const intensity = 0.2;
+    const light = new THREE.AmbientLight(color, intensity);
+    scene.add(light);
+  }
 
-    const geometry = new THREE.ShapeGeometry( heartShape );
-    const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
-    const mesh = new THREE.Mesh( geometry, material ) ;
-    scene.add( mesh );
+  const sky_light_offset = 50;
+  for (const [dx, dy, color] of [
+      [0, 0, 0xFFFFCC],
+      //[1, 1, 0x102040], [1, -1, 0x102040], [-1, 1, 0x102040], [-1, -1, 0x102040]
+    ])
+  {
+    const intensity = 1;
+    const light = new THREE.DirectionalLight(0xFFFFCC, intensity);
+    light.position.set(0, 150, 100);
+    light.target.position.set(dx*sky_light_offset, dy*sky_light_offset, 0);
+    light.castShadow = true;
+    scene.add(light);
+    scene.add(light.target);
+
+    const helper = new THREE.DirectionalLightHelper(light, 10);
+    scene.add(helper);
+
+    light.shadow.camera.left = -100;
+    light.shadow.camera.right = 100;
+    light.shadow.camera.bottom = -100;
+    light.shadow.camera.top = 100;
+    const cameraHelper = new THREE.CameraHelper(light.shadow.camera);
+    scene.add(cameraHelper);
   }
 
   //...Render loop without requestAnimationFrame()
