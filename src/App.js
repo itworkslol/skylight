@@ -182,6 +182,7 @@ async function threeMain(canvas)
       geometry = new THREE.ShapeGeometry( footprint );
     }
 
+    // building material
     if (true) {
       const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
       const mesh = new THREE.Mesh( geometry, material ) ;
@@ -191,19 +192,13 @@ async function threeMain(canvas)
       scene.add( mesh );
     }
 
-    if (false) {
-      const edges = new THREE.EdgesGeometry(geometry, 0);
-      const edgesMat = new THREE.MeshBasicMaterial({color: 0xffffff });
-      const edgesMesh = new THREE.Mesh(edges, edgesMat);
-      edgesMesh.position.set(originX+0.9, originY+0.9, 0.9);
+    // building outline
+    if (true) {
+      const edges = new THREE.EdgesGeometry( geometry );
+      const edgesMat = new THREE.LineBasicMaterial({color: 0x000000 });
+      const edgesMesh = new THREE.LineSegments(edges, edgesMat);
+      edgesMesh.position.set(originX, originY, 0);
       scene.add(edgesMesh);
-    }
-
-    if (false) {
-      const material = new THREE.MeshLambertMaterial( { color: 0xcc9999 } );
-      const mesh = new THREE.Mesh( geometry, material ) ;
-      mesh.position.set(originX+0.1, originY+0.1, 0.1);
-      scene.add( mesh );
     }
   }
 
