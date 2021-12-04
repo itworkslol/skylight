@@ -36,6 +36,8 @@ class MyMapControls extends EventDispatcher {
 		this.domElement = domElement;
 		this.domElement.style.touchAction = 'none'; // disable touch scroll
 
+        this.orbitAxis = new Vector3(0, 0, 1);
+
 		// Set to false to disable this control
 		this.enabled = true;
 
@@ -77,7 +79,7 @@ class MyMapControls extends EventDispatcher {
 		// Set to false to disable panning
 		this.enablePan = true;
 		this.panSpeed = 1.0;
-		this.screenSpacePanning = true; // if false, pan orthogonal to world-space direction camera.up
+		this.screenSpacePanning = true; // if false, pan orthogonal to orbitAxis
 		this.keyPanSpeed = 7.0;	// pixels moved per arrow key push
 
 		// Set to true to automatically rotate around the target
@@ -159,10 +161,6 @@ class MyMapControls extends EventDispatcher {
 
 			const offset = new Vector3();
 
-            const orbitAxis = new Vector3(0, 0, 1);
-			const quat = new Quaternion().setFromUnitVectors( orbitAxis, new Vector3( 0, 1, 0 ) );
-			const quatInverse = quat.clone().invert();
-
 			const lastPosition = new Vector3();
 			const lastQuaternion = new Quaternion();
 
@@ -171,16 +169,40 @@ class MyMapControls extends EventDispatcher {
             let debugFrameCount = 0;
 			return function update() {
                 debugFrameCount++;
+                function debuglog(msg) {
+                    if (debugFrameCount % 30 == 0) {
+                        console.log(msg);
+                    }
+                }
 
 				const position = scope.object.position;
 
 				offset.copy( position ).sub( scope.target );
 
-				// rotate offset to "y-axis-is-up" space
-				offset.applyQuaternion( quat );
+                debuglog(`offset: ${offset.x}, ${offset.y}, ${offset.z}`);
 
-				// angle from z-axis around y-axis
-				spherical.setFromVector3( offset );
+                offset.applyAxisAngle(scope.orbitAxis, rotatePanAngleDelta);
+                debuglog(`offset + rotatePan: ${offset.x}, ${offset.y}, ${offset.z}`);
+
+                object.up.applyAxisAngle(scope.orbitAxis, rotatePanAngleDelta);
+                debuglog(`cameraUp + rotatePan: ${object.up.x}, ${object.up.y}, ${object.up.z}`);
+
+				// restrict phi to be between desired limits
+                const lastPhi = spherical.phi;
+				spherical.phi = Math.max( scope.minPolarAngle, Math.min( scope.maxPolarAngle, spherical.phi ) );
+                if (lastPhi !== spherical.phi) sphericalDelta.phi = 0;
+
+                const distance = offset.length();
+
+                const tiltAxis = new Vector3(offset.x, offset.y, 0).applyAxisAngle(scope.orbitAxis, Math.PI/2);
+                offset.applyAxisAngle(tiltAxis, sphericalDelta.phi / distance);
+                debuglog(`offset + tilt: ${offset.x}, ${offset.y}, ${offset.z}`);
+
+                offset.multiplyScalar(scale);
+
+				// restrict radius to be between desired limits
+                if (distance < scope.minDistance) offset.multiplyScalar(scope.minDistance / distance);
+                else if (distance > scope.maxDistance) offset.multiplyScalar(scope.maxDistance / distance);
 
 				if ( scope.autoRotate && state === STATE.NONE ) {
 					rotatePanAngle( getAutoRotationAngle() );
@@ -188,13 +210,13 @@ class MyMapControls extends EventDispatcher {
 
 				if ( scope.enableDamping ) {
 
-					spherical.theta += sphericalDelta.theta * scope.dampingFactor;
+					//spherical.theta += sphericalDelta.theta * scope.dampingFactor;
 					spherical.phi += sphericalDelta.phi * scope.dampingFactor;
                     rotatePanAngle += rotatePanAngleDelta * scope.dampingFactor;
 
 				} else {
 
-					spherical.theta += sphericalDelta.theta;
+					//spherical.theta += sphericalDelta.theta;
 					spherical.phi += sphericalDelta.phi;
                     rotatePanAngle += rotatePanAngleDelta;
 
@@ -225,46 +247,12 @@ class MyMapControls extends EventDispatcher {
 
 				}
 
-				// restrict phi to be between desired limits
-				spherical.phi = Math.max( scope.minPolarAngle, Math.min( scope.maxPolarAngle, spherical.phi ) );
-
-				spherical.makeSafe();
-
-
-				spherical.radius *= scale;
-
-				// restrict radius to be between desired limits
-				spherical.radius = Math.max( scope.minDistance, Math.min( scope.maxDistance, spherical.radius ) );
-
 				// move target to panned location
-
 				if ( scope.enableDamping === true ) {
-
 					scope.target.addScaledVector( panOffset, scope.dampingFactor );
-
 				} else {
-
 					scope.target.add( panOffset );
-
 				}
-
-                function debuglog(msg) {
-                    if (debugFrameCount % 30 == 0) {
-                        console.log(msg);
-                    }
-                }
-                debuglog(`camera up: ${object.up.x}, ${object.up.y}, ${object.up.z}`);
-
-				offset.setFromSpherical( spherical );
-                debuglog(`offset + spherical: ${offset.x}, ${offset.y}, ${offset.z}`);
-
-                offset.applyAxisAngle(orbitAxis, rotatePanAngleDelta);
-
-				// rotate offset back to "camera-up-vector-is-up" space
-				offset.applyQuaternion( quatInverse );
-                debuglog(`offset + cameraUp: ${offset.x}, ${offset.y}, ${offset.z}`);
-
-                object.up.applyAxisAngle(orbitAxis, rotatePanAngleDelta);
 
 				position.copy( scope.target ).add( offset );
 
@@ -443,7 +431,7 @@ class MyMapControls extends EventDispatcher {
 				} else {
 
 					v.setFromMatrixColumn( objectMatrix, 0 );
-					v.crossVectors( scope.object.up, v );
+					v.crossVectors( scope.orbitAxis, v );
 
 				}
 
@@ -935,13 +923,24 @@ class MyMapControls extends EventDispatcher {
 						state = STATE.PAN;
 					} else {
 						if ( scope.enableRotate === false ) return;
-                        console.log(`starting rpan: ${event.x}, ${event.y}`)
 						handleMouseDownRotatePan( event );
 						state = STATE.RPAN;
 					}
 					break;
 
 				case MOUSE.RIGHT:
+					if (altMode) {
+						if ( scope.enableRotate === false ) return;
+						handleMouseDownRotateTilt( event );
+						state = STATE.RPAN;
+					} else {
+						if ( scope.enablePan === false ) return;
+						handleMouseDownPan( event );
+						state = STATE.PAN;
+					}
+					break;
+
+				case MOUSE.MIDDLE:
 					if (altMode) {
 						if ( scope.enablePan === false ) return;
 						handleMouseDownPan( event );
@@ -950,18 +949,6 @@ class MyMapControls extends EventDispatcher {
 						if ( scope.enableRotate === false ) return;
 						handleMouseDownRotateTilt( event );
 						state = STATE.RTILT;
-					}
-					break;
-
-				case MOUSE.MIDDLE:
-					if (altMode) {
-						if ( scope.enableRotate === false ) return;
-						handleMouseDownRotateTilt( event );
-						state = STATE.RPAN;
-					} else {
-						if ( scope.enablePan === false ) return;
-						handleMouseDownPan( event );
-						state = STATE.PAN;
 					}
                     // prevent the browser from scrolling on middle mouse
                     event.preventDefault();
@@ -987,7 +974,6 @@ class MyMapControls extends EventDispatcher {
 
 					if ( scope.enableRotate === false ) return;
 
-                    console.log(`rpan: ${event.x}, ${event.y}`)
 					handleMouseMoveRotatePan( event );
 
 					break;

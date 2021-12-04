@@ -19,6 +19,7 @@ import * as Plot from "@observablehq/plot";
 import { PlotFigure } from 'plot-react';
 
 import mapData from './Camperdown small.json'
+import mapBaseImage from './Camperdown small.png'
 
 /* This code is needed to properly load the images in the Leaflet CSS */
 delete L.Icon.Default.prototype._getIconUrl;
@@ -211,18 +212,18 @@ async function threeMain(canvas)
   const near = 0.1;
   const far = 1000;
   const camera = new THREE.PerspectiveCamera(fov, aspectRatio, near, far);
-  camera.position.set(0, 0, 100);
+  camera.position.set(0, -100, 100);
   camera.up = new THREE.Vector3( 0, 1, 0 );
   camera.lookAt(0, 0, 0);
 
   const controls = new MyMapControls(camera, renderer.domElement);
-  controls.enableDamping = true; // Enables inertia on the camera making it come to a more gradual stop.
+  controls.enableDamping = false; // Enables inertia on the camera making it come to a more gradual stop.
   controls.dampingFactor = 0.25; // Inertia factor
-  controls.minAzimuthAngle = 0;
-  controls.maxAzimuthAngle = 0;
+  controls.screenSpacePanning = false;
 
   // Setup scene
   const scene = new THREE.Scene();
+  const textureLoader = new THREE.TextureLoader();
   {
     const geometry = new THREE.BoxGeometry(1, 1, 1);
     const material = new THREE.MeshLambertMaterial({color: 0x44aa88});
@@ -232,7 +233,8 @@ async function threeMain(canvas)
 
   {
     const ground = new THREE.PlaneGeometry(1000, 1000);
-    const material = new THREE.MeshLambertMaterial({color: 0xcc9966});
+    console.log(`loading base texture: ${mapBaseImage}`);
+    const material = new THREE.MeshLambertMaterial({map: textureLoader.load(mapBaseImage)});
     const mesh = new THREE.Mesh(ground, material).translateZ(-0.1);
     mesh.receiveShadow = true;
     scene.add(mesh);
@@ -331,8 +333,25 @@ async function threeMain(canvas)
   }
   updateSunPosition(); // initialise
 
+  function resizeRendererToDisplaySize(renderer) {
+    const canvas = renderer.domElement;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    const needResize = canvas.width !== width || canvas.height !== height;
+    if (needResize) {
+      renderer.setSize(width, height, false);
+    }
+    return needResize;
+  }
+
   //...Render loop without requestAnimationFrame()
   function render(timeMs) {
+    if (resizeRendererToDisplaySize(renderer)) {
+      const canvas = renderer.domElement;
+      camera.aspect = canvas.clientWidth / canvas.clientHeight;
+      camera.updateProjectionMatrix();
+    }
+
     controls.update();
 
     if (worldClock.autoplay === 'day') {
@@ -388,22 +407,20 @@ const sunPlot = Plot.dot(sampleSunAngle, {x: 'hourAngle', y: 'altitudeAngle'});
 
 function App() {
   return (
-    <div className="container">
-      <div className="App">
-        <h1>Hi</h1>
-      </div>
-
+    <>
       <Paper
           script={threeMain}
-          style={{height: '800px', width: '1000px'}}
+          className="map-canvas"
       />
 
+      {/*
       <PlotFigure
         options={
           {marks: [sunPlot]}
         }
       />
-    </div>
+      */}
+    </>
   );
 }
 
