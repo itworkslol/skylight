@@ -20,6 +20,16 @@ html, body, #root {
 
 h2, h3, h4 {
   border-bottom: 2px solid navy;
+  margin-top: 0;
+}
+
+.ui-pane-drag-title {
+  padding: 0.5em;
+  background-color: rgb(189, 223, 236);
+  cursor: move;
+}
+.ui-pane-drag-title:hover {
+  background-color: lightblue;
 }
 
 .ui-pane {

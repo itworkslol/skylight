@@ -9,7 +9,6 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import shadowIcon from 'leaflet/dist/images/marker-shadow.png'
 
 import * as THREE from 'three';
-import { OrbitControls, MapControls } from "three/examples/jsm/controls/OrbitControls";
 import { MyMapControls } from './MyMapControls';
 import { Paper } from "react-three-paper";
 
@@ -50,7 +49,7 @@ function describeBuilding(building) {
   let name;
   if (building['tags'] !== undefined) {
     if (building['tags']['name']) name = building['tags']['name'];
-    else if (building['tags']['building'] && building['tags']['building'] != 'yes') name = building['tags']['building'];
+    else if (building['tags']['building'] && building['tags']['building'] !== 'yes') name = building['tags']['building'];
   }
   return name ?? '';
 }
@@ -106,6 +105,16 @@ class BuildingMap {
     return [shape, [min_latM, min_longM]];
   }
 
+  buildingLevels(building_id) {
+    const info = this.buildings.get(building_id)['tags'];
+    if (info !== undefined) {
+      if (info['building:levels'] !== undefined) {
+        return parseFloat(info['building:levels']);
+      }
+    }
+    return 'unknown';
+  }
+
   buildingHeight(building_id) {
     const info = this.buildings.get(building_id)['tags'];
     if (info !== undefined) {
@@ -124,6 +133,18 @@ class BuildingMap {
       return exactHeight ?? levelHeight;
     }
     return 0;
+  }
+
+  buildingName(building_id) {
+    return describeBuilding(this.buildings.get(building_id));
+  }
+
+  buildingProp(building_id, prop_name) {
+    const info = this.buildings.get(building_id);
+    if (info !== undefined && info['tags'] !== undefined && info['tags'][prop_name] !== undefined) {
+      return info['tags'][prop_name];
+    }
+    return null;
   }
 }
 
@@ -212,7 +233,7 @@ class PickHelper {
     this.pickPosition = null; // or {x, y}
   }
 
-  pick(normalizedPosition, scene, camera, time) {
+  pick(normalizedPosition, scene, camera) {
     // restore the color if there is a picked object
     if (this.pickedObject) {
       this.pickedObject.material.emissive.setHex(this.pickedObjectSavedColor);
@@ -252,110 +273,107 @@ class PickHelper {
 }
 
 const pickHelper = new PickHelper();
+const PICK_ON_CLICK = true;
 
-async function threeMain(canvas)
-{
-  // Setup canvas
-  const renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialiasing: true,
-  });
-
-  window.addEventListener('mousemove', (event) => pickHelper.setPickPosition(canvas, event));
-  window.addEventListener('mouseout', (event) => pickHelper.clearPickPosition());
-  window.addEventListener('mouseleave', (event) => pickHelper.clearPickPosition());
-
-  const aspectRatio = canvas.clientWidth / canvas.clientHeight;
-  renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-
-  renderer.shadowMap.enabled = true;
-
-  // Setup camera
-  const fov = 90;
-  const near = 0.1;
-  const far = 1000;
-  const camera = new THREE.PerspectiveCamera(fov, aspectRatio, near, far);
-  camera.position.set(0, 0, 100);
-  camera.up = new THREE.Vector3( 0, 1, 0 );
-  camera.lookAt(0, 0, 0);
-
-  const controls = new MyMapControls(camera, renderer.domElement);
-  controls.enableDamping = false; // Enables inertia on the camera making it come to a more gradual stop.
-  controls.dampingFactor = 0.25; // Inertia factor
-  controls.screenSpacePanning = false;
-
-  // Setup scene
-  const scene = new THREE.Scene();
-  const textureLoader = new THREE.TextureLoader();
+function threeMainSetup(onPickObject) {
+  async function threeMain(canvas)
   {
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshLambertMaterial({color: 0x44aa88});
-    const cube = new THREE.Mesh(geometry, material);
-    scene.add(cube);
-  }
+    // Setup canvas
+    const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialiasing: true,
+    });
 
-  {
-    const ground = new THREE.PlaneGeometry(1000, 1000);
-    console.log(`loading base texture: ${mapBaseImage}`);
-    const material = new THREE.MeshLambertMaterial({map: textureLoader.load(mapBaseImage)});
-    const mesh = new THREE.Mesh(ground, material).translateZ(-0.1);
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-  }
+    const aspectRatio = canvas.clientWidth / canvas.clientHeight;
+    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
-  for (const [building_id, _] of buildingMap.buildings)
-  {
-    const [footprint, [originX, originY]] = buildingMap.buildingFootprint(building_id);
-    const height = buildingMap.buildingHeight(building_id);
-    let geometry;
-    if (height > 0) {
-      const extrudeSettings = {
-        steps: 1,
-        depth: height,
-        bevelEnabled: false,
-        bevelThickness: 0.5,
-        bevelSize: 0.5,
-        bevelSegments: 1,
-      };
-      geometry = new THREE.ExtrudeGeometry( footprint, extrudeSettings );
-    } else {
-      geometry = new THREE.ShapeGeometry( footprint );
+    renderer.shadowMap.enabled = true;
+
+    // Setup camera
+    const fov = 90;
+    const near = 0.1;
+    const far = 1000;
+    const camera = new THREE.PerspectiveCamera(fov, aspectRatio, near, far);
+    camera.position.set(0, 0, 100);
+    camera.up = new THREE.Vector3( 0, 1, 0 );
+    camera.lookAt(0, 0, 0);
+
+    const controls = new MyMapControls(camera, renderer.domElement);
+    controls.enableDamping = false; // Enables inertia on the camera making it come to a more gradual stop.
+    controls.dampingFactor = 0.25; // Inertia factor
+    controls.screenSpacePanning = false;
+
+    // Setup scene
+    const scene = new THREE.Scene();
+    const textureLoader = new THREE.TextureLoader();
+    {
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      const material = new THREE.MeshLambertMaterial({color: 0x44aa88});
+      const cube = new THREE.Mesh(geometry, material);
+      scene.add(cube);
     }
 
-    // building material
-    const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const mesh = new THREE.Mesh( geometry, material ) ;
-    mesh.position.set(originX, originY, 0);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.pickData = {building_id, pickObject: mesh};
-    scene.add( mesh );
-
-    // building outline
-    if (true) {
-      const edges = new THREE.EdgesGeometry( geometry );
-      const edgesMat = new THREE.LineBasicMaterial({color: 0x000000 });
-      const edgesMesh = new THREE.LineSegments(edges, edgesMat);
-      edgesMesh.position.set(originX, originY, 0);
-      edgesMesh.pickData = {pickObject: mesh}; // redirect to main object
-      scene.add(edgesMesh);
+    {
+      const ground = new THREE.PlaneGeometry(1000, 1000);
+      console.log(`loading base texture: ${mapBaseImage}`);
+      const material = new THREE.MeshLambertMaterial({map: textureLoader.load(mapBaseImage)});
+      const mesh = new THREE.Mesh(ground, material).translateZ(-0.1);
+      mesh.receiveShadow = true;
+      scene.add(mesh);
     }
-  }
 
-  // Lighting
-  if(true)
-  {
-    const color = 0xFFFFFF;
-    const intensity = 0.2;
-    const light = new THREE.AmbientLight(color, intensity);
-    scene.add(light);
-  }
+    for (const [building_id] of buildingMap.buildings)
+    {
+      const [footprint, [originX, originY]] = buildingMap.buildingFootprint(building_id);
+      const height = buildingMap.buildingHeight(building_id);
+      let geometry;
+      if (height > 0) {
+        const extrudeSettings = {
+          steps: 1,
+          depth: height,
+          bevelEnabled: false,
+          bevelThickness: 0.5,
+          bevelSize: 0.5,
+          bevelSegments: 1,
+        };
+        geometry = new THREE.ExtrudeGeometry( footprint, extrudeSettings );
+      } else {
+        geometry = new THREE.ShapeGeometry( footprint );
+      }
 
-  const sunLights = Array();
-  function updateSunPosition() {
-    const {hourAngle, altitudeAngle} = worldClock.sunAngle();
-    for (const light of sunLights) {
-      {
+      // building material
+      const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
+      const mesh = new THREE.Mesh( geometry, material ) ;
+      mesh.position.set(originX, originY, 0);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.pickData = {building_id, pickObject: mesh};
+      scene.add( mesh );
+
+      // building outline
+      if (true) {
+        const edges = new THREE.EdgesGeometry( geometry );
+        const edgesMat = new THREE.LineBasicMaterial({color: 0x000000 });
+        const edgesMesh = new THREE.LineSegments(edges, edgesMat);
+        edgesMesh.position.set(originX, originY, 0);
+        edgesMesh.pickData = {pickObject: mesh}; // redirect to main object
+        scene.add(edgesMesh);
+      }
+    }
+
+    // Lighting
+    if(true)
+    {
+      const color = 0xFFFFFF;
+      const intensity = 0.2;
+      const light = new THREE.AmbientLight(color, intensity);
+      scene.add(light);
+    }
+
+    const sunLights = [];
+    function updateSunPosition() {
+      const {hourAngle, altitudeAngle} = worldClock.sunAngle();
+      for (const light of sunLights) {
         const lightDistance = 200; // FIXME: should be just outside scene
         const z = Math.sin(altitudeAngle);
         const x = Math.cos(altitudeAngle) * Math.sin(hourAngle);
@@ -368,82 +386,112 @@ async function threeMain(canvas)
         }
       }
     }
-  }
 
-  const sky_light_offset = 50;
-  for (const [dx, dy, color] of [
-      [0, 0, 0xFFFFCC],
-      //[1, 1, 0x102040], [1, -1, 0x102040], [-1, 1, 0x102040], [-1, -1, 0x102040]
-    ])
-  {
-    const intensity = 1;
-    const light = new THREE.DirectionalLight(0xFFFFCC, intensity);
-    light.target.position.set(dx*sky_light_offset, dy*sky_light_offset, 0);
-    light.castShadow = true;
-    scene.add(light);
-    scene.add(light.target);
-    sunLights.push(light);
+    const sky_light_offset = 50;
+    for (const [dx, dy, color] of [
+        [0, 0, 0xFFFFCC],
+        //[1, 1, 0x102040], [1, -1, 0x102040], [-1, 1, 0x102040], [-1, -1, 0x102040]
+      ])
+    {
+      const intensity = 1;
+      const light = new THREE.DirectionalLight(color, intensity);
+      light.target.position.set(dx*sky_light_offset, dy*sky_light_offset, 0);
+      light.castShadow = true;
+      scene.add(light);
+      scene.add(light.target);
+      sunLights.push(light);
 
-    const helper = new THREE.DirectionalLightHelper(light, 10);
-    scene.add(helper);
+      const helper = new THREE.DirectionalLightHelper(light, 10);
+      scene.add(helper);
 
-    light.shadow.camera.left = -100;
-    light.shadow.camera.right = 100;
-    light.shadow.camera.bottom = -100;
-    light.shadow.camera.top = 100;
-    const cameraHelper = new THREE.CameraHelper(light.shadow.camera);
-    scene.add(cameraHelper);
-  }
-  updateSunPosition(); // initialise
-
-  function resizeRendererToDisplaySize(renderer) {
-    const canvas = renderer.domElement;
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
-    const needResize = canvas.width !== width || canvas.height !== height;
-    if (needResize) {
-      renderer.setSize(width, height, false);
+      light.shadow.camera.left = -100;
+      light.shadow.camera.right = 100;
+      light.shadow.camera.bottom = -100;
+      light.shadow.camera.top = 100;
+      const cameraHelper = new THREE.CameraHelper(light.shadow.camera);
+      scene.add(cameraHelper);
     }
-    return needResize;
-  }
+    updateSunPosition(); // initialise
 
-  //...Render loop without requestAnimationFrame()
-  function render(timeMs) {
-    if (resizeRendererToDisplaySize(renderer)) {
-      const canvas = renderer.domElement;
-      camera.aspect = canvas.clientWidth / canvas.clientHeight;
-      camera.updateProjectionMatrix();
-    }
-
-    pickHelper.pick(pickHelper.pickPosition, scene, camera, timeMs);
-
-    controls.update();
-
-    if (worldClock.autoplay === 'day') {
-      worldClock.setDay((worldClock.day + 1) % 365 + 1);
-    } else if (worldClock.autoplay === 'hour') {
-      while (true) {
-        worldClock.setHour((Math.round(worldClock.hour*10) + 1) % 240 / 10.0);
-        if (worldClock.hour < 0.0001) {
-          worldClock.setHour(0);
-          worldClock.setDay((worldClock.day + 1) % 365 + 1);
+    // Setup picking
+    if (PICK_ON_CLICK) {
+      let mouseDownAt = null;
+      // Ignore drag events (from camera controller). Yuck!
+      canvas.addEventListener('mousedown', (event) => {
+        if (event.button === 0) mouseDownAt = {x: event.clientX, y: event.clientY}
+      });
+      canvas.addEventListener('mouseup', (event) => {
+        if (event.button === 0 && mouseDownAt && event.clientX == mouseDownAt.x && event.clientY == mouseDownAt.y) {
+          pickHelper.setPickPosition(canvas, event);
+          pickHelper.pick(pickHelper.pickPosition, scene, camera);
+          onPickObject(pickHelper.pickedObject);
+          mouseDownAt = null;
         }
-        const {altitudeAngle} = worldClock.sunAngle();
-        if (altitudeAngle > 0) break;
-      }
+      });
+    } else {
+      canvas.addEventListener('mousemove', (event) => pickHelper.setPickPosition(canvas, event));
+      canvas.addEventListener('mouseout', (event) => pickHelper.clearPickPosition());
+      canvas.addEventListener('mouseleave', (event) => pickHelper.clearPickPosition());
     }
 
-    updateSunPosition();
+    // Other rendering helpers
+    function resizeRendererToDisplaySize(renderer) {
+      const canvas = renderer.domElement;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      const needResize = canvas.width !== width || canvas.height !== height;
+      if (needResize) {
+        renderer.setSize(width, height, false);
+      }
+      return needResize;
+    }
 
-    renderer.render(scene, camera);
+    //...Render loop without requestAnimationFrame()
+    function render(timeMs) {
+      if (resizeRendererToDisplaySize(renderer)) {
+        const canvas = renderer.domElement;
+        camera.aspect = canvas.clientWidth / canvas.clientHeight;
+        camera.updateProjectionMatrix();
+      }
+
+      if (!PICK_ON_CLICK) {
+        const lastPicked = pickHelper.pickedObject;
+        pickHelper.pick(pickHelper.pickPosition, scene, camera);
+        if (lastPicked !== pickHelper.pickedObject) {
+          onPickObject(pickHelper.pickedObject);
+        }
+      }
+
+      controls.update();
+
+      if (worldClock.autoplay === 'day') {
+        worldClock.setDay((worldClock.day + 1) % 365 + 1);
+      } else if (worldClock.autoplay === 'hour') {
+        while (true) {
+          worldClock.setHour((Math.round(worldClock.hour*10) + 1) % 240 / 10.0);
+          if (worldClock.hour < 0.0001) {
+            worldClock.setHour(0);
+            worldClock.setDay((worldClock.day + 1) % 365 + 1);
+          }
+          const {altitudeAngle} = worldClock.sunAngle();
+          if (altitudeAngle > 0) break;
+        }
+      }
+
+      updateSunPosition();
+
+      renderer.render(scene, camera);
+    }
+
+    //...Any cleanup youd like (optional)
+    function cleanup() {
+
+    }
+
+    return { render, cleanup }
   }
 
-  //...Any cleanup youd like (optional)
-  function cleanup() {
-
-  }
-
-  return { render, cleanup }
+  return threeMain;
 }
 
 function OSM() {
@@ -462,7 +510,7 @@ function OSM() {
   )
 }
 
-const sampleSunAngle = Array();
+const sampleSunAngle = [];
 for (let minute = 0; minute <= 1440; minute++) {
   const hour = minute/60.0;
   const {altitudeAngle, hourAngle} = worldClock.sunAngle(1, hour);
@@ -473,13 +521,21 @@ const sunPlot = Plot.dot(sampleSunAngle, {x: 'hourAngle', y: 'altitudeAngle'});
 class App extends React.Component {
   constructor(props) {
     super(props);
+    this.state = {
+      pickedObjectData: null,
+    };
+  }
+
+  onPickObject(pickedObject) {
+    this.setState({pickedObjectData: pickedObject? pickedObject.pickData : null})
   }
 
   render() {
+    const thisApp = this;
     return (
       <>
         <Paper
-            script={threeMain}
+            script={threeMainSetup((x) => thisApp.onPickObject(x))}
             className="map-canvas"
         />
 
@@ -490,23 +546,29 @@ class App extends React.Component {
               x: 0,
               y: 0,
               width: 320,
-              height: 200,
+              height: 400,
             }}
             minHeight="200"
             minWidth="200"
+            dragHandleClassName="ui-pane-drag-title"
           >
-            <div className="ui-pane-content">
+            <div className="ui-pane-drag-title">
               <h3>Building properties</h3>
-              <p>1</p>
-              <p>2</p>
-              <p>3</p>
-              <p>4</p>
-              <p>5</p>
-              <p>6</p>
-              <p>7</p>
-              <p>8</p>
-              <p>9</p>
-              <p>10</p>
+            </div>
+            <div className="ui-pane-content">
+              {!this.state.pickedObjectData || !this.state.pickedObjectData.building_id?
+                (<p>{PICK_ON_CLICK? 'Click on a building' : 'Mouse over a building'}</p>) :
+                <>
+                  <p><abbr title="OpenStreetMaps">OSM</abbr> ID: {this.state.pickedObjectData.building_id}</p>
+                  <p>Building name: {buildingMap.buildingName(this.state.pickedObjectData.building_id)} </p>
+                  <p>Building levels: {buildingMap.buildingLevels(this.state.pickedObjectData.building_id)} </p>
+                  <p>Building height: {buildingMap.buildingHeight(this.state.pickedObjectData.building_id)} </p>
+                  <p>Address: {
+                    (buildingMap.buildingProp(this.state.pickedObjectData.building_id, 'addr:housenumber')??'') + ' ' +
+                      (buildingMap.buildingProp(this.state.pickedObjectData.building_id, 'addr:street')??'')
+                    }</p>
+                </>
+              }
             </div>
             <div className="ui-pane-bottom"></div>
           </Rnd>

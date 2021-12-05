@@ -257,6 +257,7 @@
         "addr:street": "Missenden Road",
         "building": "apartments",
         "building:levels": "6",
+        "height": "24",
         "name": "Rhodes House"
       }
     },
@@ -619,7 +620,7 @@
       "tags": {
         "addr:housenumber": "124-126",
         "building": "apartments",
-        "building:levels": "6"
+        "building:levels": "5"
       }
     },
     {
@@ -730,7 +731,7 @@
       ],
       "tags": {
         "building": "apartments",
-        "building:levels": "6"
+        "building:levels": "5"
       }
     },
     {
