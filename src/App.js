@@ -194,6 +194,64 @@ mvpGui.add(worldClock, 'autoplay', ['', 'hour', 'day']);
 
 worldClock.setGuiControllers(mvpGui_Day, mvpGui_DayName, mvpGui_Hour);
 
+
+function getCanvasRelativePosition(canvas, event) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) * canvas.width  / rect.width,
+    y: (event.clientY - rect.top ) * canvas.height / rect.height,
+  };
+}
+
+class PickHelper {
+  constructor() {
+    this.raycaster = new THREE.Raycaster();
+    this.pickedObject = null;
+    this.pickedObjectSavedColor = 0;
+    this.pickPosition = null; // or {x, y}
+  }
+
+  pick(normalizedPosition, scene, camera, time) {
+    // restore the color if there is a picked object
+    if (this.pickedObject) {
+      this.pickedObject.material.emissive.setHex(this.pickedObjectSavedColor);
+      this.pickedObject = undefined;
+    }
+
+    if (!normalizedPosition) return;
+
+    // cast a ray through the frustum
+    this.raycaster.setFromCamera(normalizedPosition, camera);
+    // get the list of objects the ray intersected
+    const intersectedObjects = this.raycaster.intersectObjects(scene.children);
+    if (intersectedObjects.length) {
+      // pick the first object. It's the closest one
+      // First, check if it is pickable
+      if (!intersectedObjects[0].object.pickData) return;
+
+      this.pickedObject = intersectedObjects[0].object.pickData.pickObject;
+      // save its color
+      this.pickedObjectSavedColor = this.pickedObject.material.emissive.getHex();
+      // add some emissive color (our existing buildings are not emissive so this is OK for now)
+      this.pickedObject.material.emissive.setHex(0x666666);
+    }
+  }
+
+  setPickPosition(canvas, event) {
+    const pos = getCanvasRelativePosition(canvas, event);
+    this.pickPosition = {
+      x: (pos.x / canvas.width ) *  2 - 1,
+      y: (pos.y / canvas.height) * -2 + 1,  // note we flip Y
+    }
+  }
+
+  clearPickPosition() {
+    this.pickPosition = null;
+  }
+}
+
+const pickHelper = new PickHelper();
+
 async function threeMain(canvas)
 {
   // Setup canvas
@@ -201,6 +259,10 @@ async function threeMain(canvas)
       canvas,
       antialiasing: true,
   });
+
+  window.addEventListener('mousemove', (event) => pickHelper.setPickPosition(canvas, event));
+  window.addEventListener('mouseout', (event) => pickHelper.clearPickPosition());
+  window.addEventListener('mouseleave', (event) => pickHelper.clearPickPosition());
 
   const aspectRatio = canvas.clientWidth / canvas.clientHeight;
   renderer.setSize(canvas.clientWidth, canvas.clientHeight);
@@ -260,14 +322,13 @@ async function threeMain(canvas)
     }
 
     // building material
-    if (true) {
-      const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
-      const mesh = new THREE.Mesh( geometry, material ) ;
-      mesh.position.set(originX, originY, 0);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      scene.add( mesh );
-    }
+    const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const mesh = new THREE.Mesh( geometry, material ) ;
+    mesh.position.set(originX, originY, 0);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.pickData = {building_id, pickObject: mesh};
+    scene.add( mesh );
 
     // building outline
     if (true) {
@@ -275,6 +336,7 @@ async function threeMain(canvas)
       const edgesMat = new THREE.LineBasicMaterial({color: 0x000000 });
       const edgesMesh = new THREE.LineSegments(edges, edgesMat);
       edgesMesh.position.set(originX, originY, 0);
+      edgesMesh.pickData = {pickObject: mesh}; // redirect to main object
       scene.add(edgesMesh);
     }
   }
@@ -351,6 +413,8 @@ async function threeMain(canvas)
       camera.aspect = canvas.clientWidth / canvas.clientHeight;
       camera.updateProjectionMatrix();
     }
+
+    pickHelper.pick(pickHelper.pickPosition, scene, camera, timeMs);
 
     controls.update();
 
