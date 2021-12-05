@@ -530,6 +530,22 @@ class App extends React.Component {
     this.setState({pickedObjectData: pickedObject? pickedObject.pickData : null})
   }
 
+  renderBuildingProps() {
+    const building_id = this.state.pickedObjectData.building_id;
+    return (
+      <>
+        <p><abbr title="OpenStreetMaps">OSM</abbr> ID: {building_id}</p>
+        <p>Building name: {buildingMap.buildingName(building_id)} </p>
+        <p>Building levels: {buildingMap.buildingLevels(building_id)} </p>
+        <p>Building height: {buildingMap.buildingHeight(building_id) + (buildingMap.buildingProp(building_id, 'height')? '' : ' (est.)')} </p>
+        <p>Address: {
+          (buildingMap.buildingProp(building_id, 'addr:housenumber')??'') + ' ' +
+            (buildingMap.buildingProp(building_id, 'addr:street')??'')
+          }</p>
+      </>
+    )
+  }
+
   render() {
     const thisApp = this;
     return (
@@ -557,17 +573,7 @@ class App extends React.Component {
             </div>
             <div className="ui-pane-content">
               {!this.state.pickedObjectData || !this.state.pickedObjectData.building_id?
-                (<p>{PICK_ON_CLICK? 'Click on a building' : 'Mouse over a building'}</p>) :
-                <>
-                  <p><abbr title="OpenStreetMaps">OSM</abbr> ID: {this.state.pickedObjectData.building_id}</p>
-                  <p>Building name: {buildingMap.buildingName(this.state.pickedObjectData.building_id)} </p>
-                  <p>Building levels: {buildingMap.buildingLevels(this.state.pickedObjectData.building_id)} </p>
-                  <p>Building height: {buildingMap.buildingHeight(this.state.pickedObjectData.building_id)} </p>
-                  <p>Address: {
-                    (buildingMap.buildingProp(this.state.pickedObjectData.building_id, 'addr:housenumber')??'') + ' ' +
-                      (buildingMap.buildingProp(this.state.pickedObjectData.building_id, 'addr:street')??'')
-                    }</p>
-                </>
+                (<p>{PICK_ON_CLICK? 'Click on a building' : 'Mouse over a building'}</p>) : this.renderBuildingProps()
               }
             </div>
             <div className="ui-pane-bottom"></div>
