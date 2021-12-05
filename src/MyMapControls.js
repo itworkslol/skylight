@@ -179,24 +179,31 @@ class MyMapControls extends EventDispatcher {
 
 				offset.copy( position ).sub( scope.target );
 
-                debuglog(`offset: ${offset.x}, ${offset.y}, ${offset.z}`);
+                debuglog(`mapControl offset: ${offset.x}, ${offset.y}, ${offset.z}`);
 
                 offset.applyAxisAngle(scope.orbitAxis, rotatePanAngleDelta);
-                debuglog(`offset + rotatePan: ${offset.x}, ${offset.y}, ${offset.z}`);
+                debuglog(`mapControl offset + rotatePan(${rotatePanAngleDelta}): ${offset.x}, ${offset.y}, ${offset.z}`);
 
                 object.up.applyAxisAngle(scope.orbitAxis, rotatePanAngleDelta);
-                debuglog(`cameraUp + rotatePan: ${object.up.x}, ${object.up.y}, ${object.up.z}`);
-
-				// restrict phi to be between desired limits
-                const lastPhi = spherical.phi;
-				spherical.phi = Math.max( scope.minPolarAngle, Math.min( scope.maxPolarAngle, spherical.phi ) );
-                if (lastPhi !== spherical.phi) sphericalDelta.phi = 0;
+                debuglog(`mapControl cameraUp + rotatePan(${rotatePanAngleDelta}): ${object.up.x}, ${object.up.y}, ${object.up.z}`);
 
                 const distance = offset.length();
 
-                const tiltAxis = new Vector3(offset.x, offset.y, 0).applyAxisAngle(scope.orbitAxis, Math.PI/2);
+                const tiltAxis = new Vector3();
+                tiltAxis.crossVectors(scope.object.up, offset);
                 offset.applyAxisAngle(tiltAxis, sphericalDelta.phi / distance);
-                debuglog(`offset + tilt: ${offset.x}, ${offset.y}, ${offset.z}`);
+                debuglog(`mapControl offset + tilt(${sphericalDelta.phi} @ ${distance}): ${offset.x}, ${offset.y}, ${offset.z}`);
+
+                // clamp us from looking upside down
+                const trueUp = new Vector3();
+                trueUp.crossVectors(offset, tiltAxis);
+                debuglog(`mapControl camera angle: ${trueUp.angleTo(scope.orbitAxis)}`)
+                if (trueUp.angleTo(scope.orbitAxis) > Math.PI/2) {
+                    if (sphericalDelta.phi < 0) {
+                        debuglog(`mapControl undo tilt: ${offset.x}, ${offset.y}, ${offset.z}`);
+                        offset.applyAxisAngle(tiltAxis, -sphericalDelta.phi / distance);
+                    }
+                }
 
                 offset.multiplyScalar(scale);
 
