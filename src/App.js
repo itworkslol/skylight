@@ -11,6 +11,7 @@ import shadowIcon from 'leaflet/dist/images/marker-shadow.png'
 import * as THREE from 'three';
 import { MyMapControls } from './MyMapControls';
 import { Paper } from "react-three-paper";
+import buildingTextureImage from './building texture.png'
 
 import GUI from 'lil-gui';
 import { Rnd } from 'react-rnd';
@@ -112,7 +113,7 @@ class BuildingMap {
         return parseFloat(info['building:levels']);
       }
     }
-    return 'unknown';
+    return null;
   }
 
   buildingHeight(building_id) {
@@ -130,9 +131,9 @@ class BuildingMap {
         if (levelHeight > 0.5 * exactHeight && exactHeight > 0.5 * levelHeight) return exactHeight;
         return levelHeight;
       }
-      return exactHeight ?? levelHeight;
+      return exactHeight ?? levelHeight ?? null;
     }
-    return 0;
+    return null;
   }
 
   buildingName(building_id) {
@@ -230,14 +231,14 @@ class PickHelper {
   constructor() {
     this.raycaster = new THREE.Raycaster();
     this.pickedObject = null;
-    this.pickedObjectSavedColor = 0;
+    this.pickedObjectSavedColor = null;
     this.pickPosition = null; // or {x, y}
   }
 
   pick(normalizedPosition, scene, camera) {
     // restore the color if there is a picked object
     if (this.pickedObject) {
-      this.pickedObject.material.emissive.setHex(this.pickedObjectSavedColor);
+      this.pickedObject.material = this.pickedObjectSavedColor;
       this.pickedObject = undefined;
     }
 
@@ -247,16 +248,17 @@ class PickHelper {
     this.raycaster.setFromCamera(normalizedPosition, camera);
     // get the list of objects the ray intersected
     const intersectedObjects = this.raycaster.intersectObjects(scene.children);
-    if (intersectedObjects.length) {
-      // pick the first object. It's the closest one
-      // First, check if it is pickable
-      if (!intersectedObjects[0].object.pickData) return;
-
-      this.pickedObject = intersectedObjects[0].object.pickData.pickObject;
-      // save its color
-      this.pickedObjectSavedColor = this.pickedObject.material.emissive.getHex();
-      // add some emissive color (our existing buildings are not emissive so this is OK for now)
-      this.pickedObject.material.emissive.setHex(0x666666);
+    // pick from the nearest object
+    for (let i = 0; i < intersectedObjects.length; i++) {
+      if (intersectedObjects[i].object.opaqueToPick) return;
+      if (intersectedObjects[i].object.pickData) {
+        this.pickedObject = intersectedObjects[i].object.pickData.pickObject;
+        // save its color
+        this.pickedObjectSavedColor = this.pickedObject.material;
+        // swap to pick color
+        this.pickedObject.material = this.pickedObject.pickData.pickMaterial;
+        return this.pickedObject;
+      }
     }
   }
 
@@ -322,35 +324,50 @@ function threeMainSetup(stateChangeCallbacks) {
       const material = new THREE.MeshLambertMaterial({map: textureLoader.load(mapBaseImage)});
       const mesh = new THREE.Mesh(ground, material).translateZ(-0.1);
       mesh.receiveShadow = true;
+      mesh.opaqueToPick = true;
       scene.add(mesh);
     }
+
+    // building materials
+    const wallTexture = textureLoader.load(buildingTextureImage);
+    wallTexture.wrapS = THREE.RepeatWrapping;
+    wallTexture.wrapT = THREE.RepeatWrapping;
+    const wallMaterial = new THREE.MeshLambertMaterial({ map: wallTexture });
+    const roofMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const buildingMaterial = [roofMaterial, wallMaterial];
+
+    const pickWallMaterial = new THREE.MeshLambertMaterial({ map: wallTexture, emissive: 0x333399 });
+    const pickRoofMaterial = new THREE.MeshLambertMaterial({ color: 0xcccccc, emissive: 0x333399 });
+    const pickBuildingMaterial = [pickRoofMaterial, pickWallMaterial];
 
     for (const [building_id] of buildingMap.buildings)
     {
       const [footprint, [originX, originY]] = buildingMap.buildingFootprint(building_id);
-      const height = buildingMap.buildingHeight(building_id);
+      const height = buildingMap.buildingHeight(building_id) ?? 0;
       let geometry;
+      let heightScale = 1;
       if (height > 0) {
+        // define the geometry with 1 level/m so that the wall texture works with default UV
         const extrudeSettings = {
           steps: 1,
-          depth: height,
+          depth: buildingMap.buildingLevels(building_id) ?? 1,
           bevelEnabled: false,
           bevelThickness: 0.5,
           bevelSize: 0.5,
           bevelSegments: 1,
         };
         geometry = new THREE.ExtrudeGeometry( footprint, extrudeSettings );
+        geometry.scale(1, 1, height / extrudeSettings.depth);
       } else {
         geometry = new THREE.ShapeGeometry( footprint );
       }
 
-      // building material
-      const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
-      const mesh = new THREE.Mesh( geometry, material ) ;
+      // building faces
+      const mesh = new THREE.Mesh(geometry, buildingMaterial);
       mesh.position.set(originX, originY, 0);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      mesh.pickData = {building_id, pickObject: mesh};
+      mesh.pickData = {building_id, pickMaterial: pickBuildingMaterial, pickObject: mesh};
       scene.add( mesh );
 
       // building outline
@@ -431,7 +448,7 @@ function threeMainSetup(stateChangeCallbacks) {
 
       {
         const sphere = new THREE.SphereGeometry(5, 16, 8);
-        const lightMat = new THREE.MeshBasicMaterial({color: 0xffffdd, emissive: 0xffffdd});
+        const lightMat = new THREE.MeshBasicMaterial({color: 0xffffdd});
         const lightBulb = new THREE.Mesh(sphere, lightMat);
         light.add(lightBulb);
       }
@@ -627,8 +644,8 @@ class App extends React.Component {
       <>
         <p><abbr title="OpenStreetMaps">OSM</abbr> ID: {building_id}</p>
         <p>Building name: {buildingMap.buildingName(building_id)} </p>
-        <p>Building levels: {buildingMap.buildingLevels(building_id)} </p>
-        <p>Building height: {buildingMap.buildingHeight(building_id) + (buildingMap.buildingProp(building_id, 'height')? '' : ' (est.)')} </p>
+        <p>Building levels: {buildingMap.buildingLevels(building_id) ?? 'unknown'} </p>
+        <p>Building height: {(buildingMap.buildingHeight(building_id) ?? 'unknown') + (buildingMap.buildingProp(building_id, 'height')? '' : ' (est.)')} </p>
         <p>Address: {
           (buildingMap.buildingProp(building_id, 'addr:housenumber')??'') + ' ' +
             (buildingMap.buildingProp(building_id, 'addr:street')??'')
