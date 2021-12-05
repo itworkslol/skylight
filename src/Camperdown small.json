@@ -685,7 +685,8 @@
       ],
       "tags": {
         "building": "apartments",
-        "building:levels": "3",
+        "building:levels": "5",
+        "height": "24",
         "roof:shape": "flat"
       }
     },

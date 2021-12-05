@@ -382,13 +382,8 @@ function threeMainSetup(stateChangeCallbacks) {
     }
 
     // Lighting
-    if(true)
-    {
-      const color = 0xFFFFFF;
-      const intensity = 0.2;
-      const light = new THREE.AmbientLight(color, intensity);
-      scene.add(light);
-    }
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+    scene.add(ambientLight);
 
     const debugSunDisk = [];
     const sunLights = [];
@@ -407,6 +402,9 @@ function threeMainSetup(stateChangeCallbacks) {
         } else {
           light.intensity = 1;
         }
+        // twilight hack
+        const twilightHA = 0.5 * 15*DEG;
+        ambientLight.intensity = 0.1 + 0.2 * Math.sqrt(Math.max(0, Math.sin((altitudeAngle + twilightHA) * Math.PI / (Math.PI + 2*twilightHA))));
       }
 
       // debug sun disk
