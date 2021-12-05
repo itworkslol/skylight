@@ -14,6 +14,7 @@ import { MyMapControls } from './MyMapControls';
 import { Paper } from "react-three-paper";
 
 import GUI from 'lil-gui';
+import { Rnd } from 'react-rnd';
 
 import * as Plot from "@observablehq/plot";
 import { PlotFigure } from 'plot-react';
@@ -274,7 +275,7 @@ async function threeMain(canvas)
   const near = 0.1;
   const far = 1000;
   const camera = new THREE.PerspectiveCamera(fov, aspectRatio, near, far);
-  camera.position.set(0, -100, 100);
+  camera.position.set(0, 0, 100);
   camera.up = new THREE.Vector3( 0, 1, 0 );
   camera.lookAt(0, 0, 0);
 
@@ -469,23 +470,58 @@ for (let minute = 0; minute <= 1440; minute++) {
 }
 const sunPlot = Plot.dot(sampleSunAngle, {x: 'hourAngle', y: 'altitudeAngle'});
 
-function App() {
-  return (
-    <>
-      <Paper
-          script={threeMain}
-          className="map-canvas"
-      />
+class App extends React.Component {
+  constructor(props) {
+    super(props);
+  }
 
-      {/*
-      <PlotFigure
-        options={
-          {marks: [sunPlot]}
-        }
-      />
-      */}
-    </>
-  );
+  render() {
+    return (
+      <>
+        <Paper
+            script={threeMain}
+            className="map-canvas"
+        />
+
+        <div id="ui-overlay">
+          <Rnd
+            className="ui-pane"
+            default={{
+              x: 0,
+              y: 0,
+              width: 320,
+              height: 200,
+            }}
+            minHeight="200"
+            minWidth="200"
+          >
+            <div className="ui-pane-content">
+              <h3>Building properties</h3>
+              <p>1</p>
+              <p>2</p>
+              <p>3</p>
+              <p>4</p>
+              <p>5</p>
+              <p>6</p>
+              <p>7</p>
+              <p>8</p>
+              <p>9</p>
+              <p>10</p>
+            </div>
+            <div className="ui-pane-bottom"></div>
+          </Rnd>
+        </div>
+
+        {/*
+        <PlotFigure
+          options={
+            {marks: [sunPlot]}
+          }
+        />
+        */}
+      </>
+    );
+  }
 }
 
 export default App;
