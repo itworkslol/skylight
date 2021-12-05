@@ -202,7 +202,8 @@ class WorldClock {
     const declination = 23.45*DEG * Math.sin(2*Math.PI * (284 + day) / 365.25);
     const hourAngle = (12 - hour) * 15*DEG; // approx
     const altitudeAngle = Math.asin(Math.sin(declination) * Math.sin(this.latDeg*DEG) + Math.cos(declination) * Math.cos(hourAngle) * Math.cos(this.latDeg*DEG));
-    return {hourAngle, altitudeAngle};
+    const azimuth = Math.acos(Math.min(1.0, (Math.sin(declination) * Math.cos(this.latDeg*DEG) - Math.cos(declination) * Math.sin(this.latDeg*DEG) * Math.cos(hourAngle)) / Math.cos(altitudeAngle)));
+    return {hourAngle, altitudeAngle, azimuth: (hourAngle > 0 ? azimuth : -azimuth)};
   }
 };
 const worldClock = new WorldClock(LAT_LONG_ORIGIN[0], LAT_LONG_ORIGIN[1]);
@@ -275,7 +276,9 @@ class PickHelper {
 const pickHelper = new PickHelper();
 const PICK_ON_CLICK = true;
 
-function threeMainSetup(onPickObject) {
+function threeMainSetup(stateChangeCallbacks) {
+  const {onPickObject, onSunAngleChanged} = stateChangeCallbacks;
+
   async function threeMain(canvas)
   {
     // Setup canvas
@@ -294,7 +297,7 @@ function threeMainSetup(onPickObject) {
     const near = 0.1;
     const far = 1000;
     const camera = new THREE.PerspectiveCamera(fov, aspectRatio, near, far);
-    camera.position.set(0, 0, 100);
+    camera.position.set(0, 0, 400);
     camera.up = new THREE.Vector3( 0, 1, 0 );
     camera.lookAt(0, 0, 0);
 
@@ -370,19 +373,47 @@ function threeMainSetup(onPickObject) {
       scene.add(light);
     }
 
+    const debugSunDisk = [];
     const sunLights = [];
     function updateSunPosition() {
-      const {hourAngle, altitudeAngle} = worldClock.sunAngle();
+      const {hourAngle, altitudeAngle, azimuth} = worldClock.sunAngle();
+      onSunAngleChanged({hourAngle, altitudeAngle, azimuth});
+
+      const lightDistance = 200; // FIXME: should be just outside scene
       for (const light of sunLights) {
-        const lightDistance = 200; // FIXME: should be just outside scene
-        const z = Math.sin(altitudeAngle);
-        const x = Math.cos(altitudeAngle) * Math.sin(hourAngle);
-        const y = Math.cos(altitudeAngle) * Math.cos(hourAngle);
-        light.position.set(x * lightDistance, y * lightDistance, z * lightDistance);
+        light.position.set(0, 0, lightDistance);
+        const zenith = altitudeAngle - Math.PI/2;
+        light.position.applyAxisAngle(new THREE.Vector3(1, 0, 0), zenith);
+        light.position.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
         if (altitudeAngle < 0) {
           light.intensity = 0;
         } else {
           light.intensity = 1;
+        }
+      }
+
+      // debug sun disk
+      let sunDiskPoint = new THREE.Vector3();
+      for (let h = 0; h < 24; h++) {
+        const {altitudeAngle, azimuth} = worldClock.sunAngle(worldClock.day, h);
+        sunDiskPoint.set(0, 0, lightDistance);
+        const zenith = altitudeAngle - Math.PI/2;
+        sunDiskPoint.applyAxisAngle(new THREE.Vector3(1, 0, 0), zenith);
+        sunDiskPoint.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
+        if (debugSunDisk.length < 24) {
+          const endpoints = new Float32Array(2 * 3);
+          new THREE.Vector3(0, 0, 0).toArray(endpoints, 0 * 3);
+          const lineGeom = new THREE.BufferGeometry();
+          lineGeom.setAttribute('position', new THREE.BufferAttribute(endpoints, 3));
+          const lineMat = new THREE.LineBasicMaterial({color: 0xffcccc});
+          const line = new THREE.Line(lineGeom, lineMat);
+          scene.add(line);
+          debugSunDisk.push(line);
+        }
+        {
+          const line = debugSunDisk[h];
+          sunDiskPoint.toArray(line.geometry.attributes.position.array, 1 * 3);
+          line.geometry.attributes.position.needsUpdate = true;
         }
       }
     }
@@ -397,6 +428,14 @@ function threeMainSetup(onPickObject) {
       const light = new THREE.DirectionalLight(color, intensity);
       light.target.position.set(dx*sky_light_offset, dy*sky_light_offset, 0);
       light.castShadow = true;
+
+      {
+        const sphere = new THREE.SphereGeometry(5, 16, 8);
+        const lightMat = new THREE.MeshBasicMaterial({color: 0xffffdd, emissive: 0xffffdd});
+        const lightBulb = new THREE.Mesh(sphere, lightMat);
+        light.add(lightBulb);
+      }
+
       scene.add(light);
       scene.add(light.target);
       sunLights.push(light);
@@ -446,6 +485,9 @@ function threeMainSetup(onPickObject) {
       return needResize;
     }
 
+    const axesHelper = new THREE.AxesHelper(50);
+    scene.add( axesHelper );
+
     //...Render loop without requestAnimationFrame()
     function render(timeMs) {
       if (resizeRendererToDisplaySize(renderer)) {
@@ -467,7 +509,7 @@ function threeMainSetup(onPickObject) {
       if (worldClock.autoplay === 'day') {
         worldClock.setDay((worldClock.day + 1) % 365 + 1);
       } else if (worldClock.autoplay === 'hour') {
-        while (true) {
+        for (let i = 0; i < 20; i++) { // fast forward night
           worldClock.setHour((Math.round(worldClock.hour*10) + 1) % 240 / 10.0);
           if (worldClock.hour < 0.0001) {
             worldClock.setHour(0);
@@ -523,11 +565,16 @@ class App extends React.Component {
     super(props);
     this.state = {
       pickedObjectData: null,
+      sunAngle: null,
     };
   }
 
   onPickObject(pickedObject) {
-    this.setState({pickedObjectData: pickedObject? pickedObject.pickData : null})
+    this.setState({pickedObjectData: pickedObject? pickedObject.pickData : null});
+  }
+
+  onSunAngleChanged(sunAngle) {
+    this.setState({sunAngle});
   }
 
   renderBuildingProps() {
@@ -551,7 +598,10 @@ class App extends React.Component {
     return (
       <>
         <Paper
-            script={threeMainSetup((x) => thisApp.onPickObject(x))}
+            script={threeMainSetup({
+              onPickObject: (x) => thisApp.onPickObject(x),
+              onSunAngleChanged: (x) => thisApp.onSunAngleChanged(x),
+            })}
             className="map-canvas"
         />
 
@@ -574,6 +624,33 @@ class App extends React.Component {
             <div className="ui-pane-content">
               {!this.state.pickedObjectData || !this.state.pickedObjectData.building_id?
                 (<p>{PICK_ON_CLICK? 'Click on a building' : 'Mouse over a building'}</p>) : this.renderBuildingProps()
+              }
+            </div>
+            <div className="ui-pane-bottom"></div>
+          </Rnd>
+
+          <Rnd
+            className="ui-pane"
+            default={{
+              x: 0,
+              y: 400,
+              width: 200,
+              height: 200,
+            }}
+            minHeight="200"
+            minWidth="200"
+            dragHandleClassName="ui-pane-drag-title"
+          >
+            <div className="ui-pane-drag-title">
+              <h4>Sun angle</h4>
+            </div>
+            <div className="ui-pane-content">
+              {!this.state.sunAngle ? <p>Initializing...</p> :
+                <>
+                  <p>Hour angle: {Math.round(this.state.sunAngle.hourAngle * RAD)}&deg;</p>
+                  <p>Altitude: {Math.round(this.state.sunAngle.altitudeAngle * RAD)}&deg;</p>
+                  <p>Azimuth: {Math.round(this.state.sunAngle.azimuth * RAD)}&deg;</p>
+                </>
               }
             </div>
             <div className="ui-pane-bottom"></div>
