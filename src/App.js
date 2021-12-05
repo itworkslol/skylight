@@ -404,10 +404,10 @@ function threeMainSetup(onPickObject) {
       const helper = new THREE.DirectionalLightHelper(light, 10);
       scene.add(helper);
 
-      light.shadow.camera.left = -100;
-      light.shadow.camera.right = 100;
-      light.shadow.camera.bottom = -100;
-      light.shadow.camera.top = 100;
+      light.shadow.camera.left = -200;
+      light.shadow.camera.right = 200;
+      light.shadow.camera.bottom = -200;
+      light.shadow.camera.top = 200;
       const cameraHelper = new THREE.CameraHelper(light.shadow.camera);
       scene.add(cameraHelper);
     }
