@@ -199,7 +199,7 @@ class WorldClock {
     day = day?? this.day;
     hour = hour?? this.hour;
     // Ref: https://www.itacanet.org/the-sun-as-a-source-of-energy/
-    const declination = 23.45*DEG * Math.sin(2*Math.PI * (284 + day) / 365.25);
+    const declination = 23.45*DEG * Math.sin(2*Math.PI * (284 + day + hour / 24.0) / 365.25);
     const hourAngle = (12 - hour) * 15*DEG; // approx
     const altitudeAngle = Math.asin(Math.sin(declination) * Math.sin(this.latDeg*DEG) + Math.cos(declination) * Math.cos(hourAngle) * Math.cos(this.latDeg*DEG));
     const azimuth = Math.acos(Math.min(1.0, (Math.sin(declination) * Math.cos(this.latDeg*DEG) - Math.cos(declination) * Math.sin(this.latDeg*DEG) * Math.cos(hourAngle)) / Math.cos(altitudeAngle)));
@@ -277,7 +277,7 @@ const pickHelper = new PickHelper();
 const PICK_ON_CLICK = true;
 
 function threeMainSetup(stateChangeCallbacks) {
-  const {onPickObject, onSunAngleChanged} = stateChangeCallbacks;
+  const {onPickObject, onSunAngleChanged, onFrame} = stateChangeCallbacks;
 
   async function threeMain(canvas)
   {
@@ -523,6 +523,7 @@ function threeMainSetup(stateChangeCallbacks) {
       updateSunPosition();
 
       renderer.render(scene, camera);
+      onFrame();
     }
 
     //...Any cleanup youd like (optional)
@@ -560,12 +561,51 @@ for (let minute = 0; minute <= 1440; minute++) {
 }
 const sunPlot = Plot.dot(sampleSunAngle, {x: 'hourAngle', y: 'altitudeAngle'});
 
+class FPSCounter {
+  constructor() {
+    this.history = [];
+    this.timeWindow = 5;
+    this.windowPtr = 0;
+    this.now = Date.now() / 1000;
+
+    this.avgSum = 0;
+    this.avgCount = 0;
+  }
+
+  newFrameTime() {
+    const last = this.now;
+    this.now = Date.now() / 1000;
+    return this.now - last;
+  }
+
+  onFrame() {
+    const frameTime = this.newFrameTime();
+    this.history.push(frameTime);
+    this.avgSum += frameTime;
+    this.avgCount++;
+    while (this.windowPtr < this.history.length && this.avgSum > this.timeWindow) {
+      this.avgSum -= this.history[this.windowPtr];
+      this.avgCount--;
+      this.windowPtr++;
+    }
+    if (this.windowPtr > this.history.length / 2) {
+      this.history = this.history.slice(this.windowPtr);
+      this.windowPtr = 0;
+    }
+  }
+
+  fps() {
+    return this.avgSum > 0? this.avgCount / this.avgSum : 0;
+  }
+}
+
 class App extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
       pickedObjectData: null,
       sunAngle: null,
+      fpsCounter: new FPSCounter(),
     };
   }
 
@@ -575,6 +615,10 @@ class App extends React.Component {
 
   onSunAngleChanged(sunAngle) {
     this.setState({sunAngle});
+  }
+
+  onFrame() {
+    this.state.fpsCounter.onFrame();
   }
 
   renderBuildingProps() {
@@ -601,6 +645,7 @@ class App extends React.Component {
             script={threeMainSetup({
               onPickObject: (x) => thisApp.onPickObject(x),
               onSunAngleChanged: (x) => thisApp.onSunAngleChanged(x),
+              onFrame: () => this.onFrame(),
             })}
             className="map-canvas"
         />
@@ -614,6 +659,7 @@ class App extends React.Component {
               width: 320,
               height: 400,
             }}
+            bounds="parent"
             minHeight="200"
             minWidth="200"
             dragHandleClassName="ui-pane-drag-title"
@@ -637,6 +683,7 @@ class App extends React.Component {
               width: 200,
               height: 200,
             }}
+            bounds="parent"
             minHeight="200"
             minWidth="200"
             dragHandleClassName="ui-pane-drag-title"
@@ -647,13 +694,31 @@ class App extends React.Component {
             <div className="ui-pane-content">
               {!this.state.sunAngle ? <p>Initializing...</p> :
                 <>
-                  <p>Hour angle: {Math.round(this.state.sunAngle.hourAngle * RAD)}&deg;</p>
-                  <p>Altitude: {Math.round(this.state.sunAngle.altitudeAngle * RAD)}&deg;</p>
-                  <p>Azimuth: {Math.round(this.state.sunAngle.azimuth * RAD)}&deg;</p>
+                  <p>Hour angle: {(this.state.sunAngle.hourAngle * RAD).toFixed(1)}&deg;</p>
+                  <p>Altitude: {(this.state.sunAngle.altitudeAngle * RAD).toFixed(1)}&deg;</p>
+                  <p>Azimuth: {(this.state.sunAngle.azimuth * RAD).toFixed(1)}&deg;</p>
                 </>
               }
             </div>
             <div className="ui-pane-bottom"></div>
+          </Rnd>
+
+          <Rnd
+            className="ui-pane"
+            default={{
+              x: 320,
+              y: 0,
+              width: 100,
+              height: 100,
+            }}
+            bounds="parent"
+            minHeight="100"
+            minWidth="100"
+            dragHandleClassName="ui-pane-drag-title"
+          >
+            <div className="ui-pane-drag-title">
+              <p><strong>FPS: </strong>{this.state.fpsCounter.fps().toFixed(1)}</p>
+            </div>
           </Rnd>
         </div>
 
