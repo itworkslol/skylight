@@ -19,7 +19,7 @@ import { Rnd } from 'react-rnd';
 import * as Plot from "@observablehq/plot";
 import { PlotFigure } from 'plot-react';
 
-import mapData from './Camperdown small.json'
+import mapData from './Camperdown.json'
 import mapBaseImage from './Camperdown small.png'
 
 /* This code is needed to properly load the images in the Leaflet CSS */

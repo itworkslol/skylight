@@ -711,6 +711,25 @@ class MyMapControls extends EventDispatcher {
 
 		}
 
+		function handleTouchStartRotatePan() {
+
+			if ( pointers.length === 1 ) {
+
+				rotateStart.set( pointers[ 0 ].pageX, pointers[ 0 ].pageY );
+				rotatePanStart.set( pointers[ 0 ].pageX, pointers[ 0 ].pageY );
+
+			} else {
+
+				const x = 0.5 * ( pointers[ 0 ].pageX + pointers[ 1 ].pageX );
+				const y = 0.5 * ( pointers[ 0 ].pageY + pointers[ 1 ].pageY );
+
+				rotateStart.set( x, y );
+				rotatePanStart.set( x, y );
+
+			}
+
+		}
+
 		function handleTouchStartPan() {
 
 			if ( pointers.length === 1 ) {
@@ -755,11 +774,14 @@ class MyMapControls extends EventDispatcher {
 
 		}
 
-		function handleTouchMoveRotate( event ) {
+		function handleTouchMoveRotatePan( event ) {
+
+			const element = scope.domElement;
 
 			if ( pointers.length === 1 ) {
 
 				rotateEnd.set( event.pageX, event.pageY );
+                rotatePanEnd.set( event.pageX, event.pageY );
 
 			} else {
 
@@ -769,16 +791,22 @@ class MyMapControls extends EventDispatcher {
 				const y = 0.5 * ( event.pageY + position.y );
 
 				rotateEnd.set( x, y );
+                rotatePanEnd.set( x, y );
 
 			}
 
+            const clientSize = Math.max(element.clientHeight, element.clientWidth);
+
+			rotatePanDelta.subVectors( rotatePanEnd, rotatePanStart ).multiplyScalar( scope.rotateSpeed );
+
+            rotatePan( 2 * Math.PI * rotatePanDelta.x / clientSize );
+
+			rotatePanStart.copy( rotatePanEnd );
+
+			rotateEnd.set( event.clientX, event.clientY );
 			rotateDelta.subVectors( rotateEnd, rotateStart ).multiplyScalar( scope.rotateSpeed );
 
-			const element = scope.domElement;
-
-			rotateLeft( 2 * Math.PI * rotateDelta.x / element.clientHeight ); // yes, height
-
-			rotateUp( 2 * Math.PI * rotateDelta.y / element.clientHeight );
+			rotateUp( 2 * Math.PI * rotateDelta.y / clientSize );
 
 			rotateStart.copy( rotateEnd );
 
@@ -840,7 +868,7 @@ class MyMapControls extends EventDispatcher {
 
 			if ( scope.enableZoom ) handleTouchMoveDolly( event );
 
-			if ( scope.enableRotate ) handleTouchMoveRotate( event );
+			if ( scope.enableRotate ) handleTouchMoveRotatePan( event );
 
 		}
 
@@ -1049,7 +1077,7 @@ class MyMapControls extends EventDispatcher {
 
 							if ( scope.enableRotate === false ) return;
 
-							handleTouchStartRotate();
+							handleTouchStartRotatePan();
 
 							state = STATE.TOUCH_ROTATE;
 
@@ -1129,7 +1157,7 @@ class MyMapControls extends EventDispatcher {
 
 					if ( scope.enableRotate === false ) return;
 
-					handleTouchMoveRotate( event );
+					handleTouchMoveRotatePan( event );
 
 					scope.update();
 
