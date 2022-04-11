@@ -107,6 +107,7 @@ class PickHelper {
 
 const pickHelper = new PickHelper();
 const PICK_ON_CLICK = true;
+const DRAW_DEBUG_GEOMETRY = false;
 
 function threeMainSetup(stateChangeCallbacks) {
   const {onPickObject, onSunAngleChanged, onFrame} = stateChangeCallbacks;
@@ -127,7 +128,7 @@ function threeMainSetup(stateChangeCallbacks) {
     // Setup camera
     const fov = 90;
     const near = 0.1;
-    const far = 1000;
+    const far = 5000;
     const camera = new THREE.PerspectiveCamera(fov, aspectRatio, near, far);
     camera.position.set(0, 0, 400);
     camera.up = new THREE.Vector3( 0, 1, 0 );
@@ -214,6 +215,7 @@ function threeMainSetup(stateChangeCallbacks) {
     // Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
     scene.add(ambientLight);
+    const lightDistance = 400; // FIXME: should be just outside scene
 
     const debugSunDisk = [];
     const sunLights = [];
@@ -221,7 +223,6 @@ function threeMainSetup(stateChangeCallbacks) {
       const {hourAngle, altitudeAngle, azimuth} = worldClock.sunAngle();
       onSunAngleChanged({hourAngle, altitudeAngle, azimuth});
 
-      const lightDistance = 200; // FIXME: should be just outside scene
       for (const light of sunLights) {
         light.position.set(0, 0, lightDistance);
         const zenith = altitudeAngle - Math.PI/2;
@@ -235,30 +236,34 @@ function threeMainSetup(stateChangeCallbacks) {
         // twilight hack
         const twilightHA = 0.5 * 15*DEG;
         ambientLight.intensity = 0.1 + 0.2 * Math.sqrt(Math.max(0, Math.sin((altitudeAngle + twilightHA) * Math.PI / (Math.PI + 2*twilightHA))));
+        ambientLight.color.b = ambientLight.intensity;
+        ambientLight.color.g = 1 - (1 - ambientLight.intensity)/2;
       }
 
-      // debug sun disk
-      let sunDiskPoint = new THREE.Vector3();
-      for (let h = 0; h < 24; h++) {
-        const {altitudeAngle, azimuth} = worldClock.sunAngle(worldClock.day, h);
-        sunDiskPoint.set(0, 0, lightDistance);
-        const zenith = altitudeAngle - Math.PI/2;
-        sunDiskPoint.applyAxisAngle(new THREE.Vector3(1, 0, 0), zenith);
-        sunDiskPoint.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
-        if (debugSunDisk.length < 24) {
-          const endpoints = new Float32Array(2 * 3);
-          new THREE.Vector3(0, 0, 0).toArray(endpoints, 0 * 3);
-          const lineGeom = new THREE.BufferGeometry();
-          lineGeom.setAttribute('position', new THREE.BufferAttribute(endpoints, 3));
-          const lineMat = new THREE.LineBasicMaterial({color: 0xffcccc});
-          const line = new THREE.Line(lineGeom, lineMat);
-          scene.add(line);
-          debugSunDisk.push(line);
-        }
-        {
-          const line = debugSunDisk[h];
-          sunDiskPoint.toArray(line.geometry.attributes.position.array, 1 * 3);
-          line.geometry.attributes.position.needsUpdate = true;
+      if (DRAW_DEBUG_GEOMETRY) {
+        // debug sun disk
+        let sunDiskPoint = new THREE.Vector3();
+        for (let h = 0; h < 24; h++) {
+          const {altitudeAngle, azimuth} = worldClock.sunAngle(worldClock.day, h);
+          sunDiskPoint.set(0, 0, lightDistance);
+          const zenith = altitudeAngle - Math.PI/2;
+          sunDiskPoint.applyAxisAngle(new THREE.Vector3(1, 0, 0), zenith);
+          sunDiskPoint.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
+          if (debugSunDisk.length < 24) {
+            const endpoints = new Float32Array(2 * 3);
+            new THREE.Vector3(0, 0, 0).toArray(endpoints, 0 * 3);
+            const lineGeom = new THREE.BufferGeometry();
+            lineGeom.setAttribute('position', new THREE.BufferAttribute(endpoints, 3));
+            const lineMat = new THREE.LineBasicMaterial({color: 0xffcccc});
+            const line = new THREE.Line(lineGeom, lineMat);
+            scene.add(line);
+            debugSunDisk.push(line);
+          }
+          {
+            const line = debugSunDisk[h];
+            sunDiskPoint.toArray(line.geometry.attributes.position.array, 1 * 3);
+            line.geometry.attributes.position.needsUpdate = true;
+          }
         }
       }
     }
@@ -274,6 +279,7 @@ function threeMainSetup(stateChangeCallbacks) {
       light.target.position.set(dx*sky_light_offset, dy*sky_light_offset, 0);
       light.castShadow = true;
 
+      if (DRAW_DEBUG_GEOMETRY)
       {
         const sphere = new THREE.SphereGeometry(5, 16, 8);
         const lightMat = new THREE.MeshBasicMaterial({color: 0xffffdd});
@@ -285,15 +291,20 @@ function threeMainSetup(stateChangeCallbacks) {
       scene.add(light.target);
       sunLights.push(light);
 
-      const helper = new THREE.DirectionalLightHelper(light, 10);
-      scene.add(helper);
+      if (DRAW_DEBUG_GEOMETRY) {
+        const helper = new THREE.DirectionalLightHelper(light, 10);
+        scene.add(helper);
+      }
 
-      light.shadow.camera.left = -200;
-      light.shadow.camera.right = 200;
-      light.shadow.camera.bottom = -200;
-      light.shadow.camera.top = 200;
-      const cameraHelper = new THREE.CameraHelper(light.shadow.camera);
-      scene.add(cameraHelper);
+      light.shadow.camera.left = -lightDistance;
+      light.shadow.camera.right = lightDistance;
+      light.shadow.camera.bottom = -lightDistance;
+      light.shadow.camera.top = lightDistance;
+      light.shadow.camera.far = 2 * lightDistance; // FIXME reach whole surface
+      if (DRAW_DEBUG_GEOMETRY) {
+        const cameraHelper = new THREE.CameraHelper(light.shadow.camera);
+        scene.add(cameraHelper);
+      }
     }
     updateSunPosition(); // initialise
 
@@ -330,8 +341,10 @@ function threeMainSetup(stateChangeCallbacks) {
       return needResize;
     }
 
-    const axesHelper = new THREE.AxesHelper(50);
-    scene.add( axesHelper );
+    if (DRAW_DEBUG_GEOMETRY) {
+      const axesHelper = new THREE.AxesHelper(50);
+      scene.add( axesHelper );
+    }
 
     //...Render loop without requestAnimationFrame()
     function render(timeMs) {
