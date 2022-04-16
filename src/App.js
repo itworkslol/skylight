@@ -602,6 +602,18 @@ class App extends React.Component {
             className="map-canvas"
         />
 
+        <div id="osm-license" style={{
+            position: 'absolute',
+            zIndex: 9,
+            bottom: 0,
+            right: 0,
+            fontSize: '10pt',
+            backgroundColor: 'lightgrey',
+            color: 'black',
+            opacity: 0.8,
+          }}>Map data © <a href="https://openstreetmap.org/contributors">OpenStreetMap contributors</a>
+        </div>
+
         <div id="ui-overlay">
           <div>
             <div id="canvas-spinner" style={{
