@@ -45,6 +45,7 @@
     "jest-watch-typeahead": "1.0.0",
     "leaflet": "^1.7.1",
     "lil-gui": "^0.16.1",
+    "lodash": "^4.17.21",
     "mini-css-extract-plugin": "2.6.0",
     "optimize-css-assets-webpack-plugin": "^6.0.1",
     "plot-react": "^1.0.0",

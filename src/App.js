@@ -5,6 +5,7 @@ import {
   MAP_RENDER_DIST, osmTileList, osmTileToLatLong, osmTileSize, osmTileUrl,
 } from './BuildingMap.js';
 import WorldClock from './WorldClock.js';
+import _ from 'lodash';
 import React from 'react';
 
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
@@ -115,6 +116,26 @@ class PickHelper {
 
 const pickHelper = new PickHelper();
 const PICK_ON_CLICK = true;
+
+let neverWrittenHash = true; // initial load
+
+function stateToHash(mapCentre, clock, controls) {
+  const [lat, long] = renderMetresToLatLong(controls.target.x, controls.target.y);
+  const s = new URLSearchParams({
+    lat: lat.toFixed(5), long: long.toFixed(5),
+    h: clock.hour.toString(), d: clock.day.toString(),
+  })
+  return s.toString()
+}
+function hashToState(h, mapCentre, clock, controls) {
+  const s = new URLSearchParams(h);
+  mapCentre.lat = Number.parseFloat(s.get('lat'));
+  mapCentre.long = Number.parseFloat(s.get('long'));
+  const [y, x] = latLongToRenderMetres(mapCentre.lat, mapCentre.long);
+  controls.target = new THREE.Vector3(x, y, 0);
+  clock.setHour(Number.parseFloat(s.get('h')));
+  clock.setDay(Number.parseInt(s.get('d')));
+}
 
 function threeMainSetup(stateChangeCallbacks) {
   const {onPickObject, onSunAngleChanged, onFrame, setSpinner} = stateChangeCallbacks;
@@ -390,6 +411,10 @@ function threeMainSetup(stateChangeCallbacks) {
 
     let sceneData = { mapCentre: LAT_LONG_ORIGIN, scene: undefined };
     function resetScene() {
+      if (neverWrittenHash && window.location.hash) {
+        hashToState(window.location.hash.substr(1), sceneData.mapCentre, worldClock, controls);
+      }
+
       setSpinner(true);
       sceneData.scene = undefined;
       // reset in the next event cycle so that the spinner appears first
@@ -407,6 +432,17 @@ function threeMainSetup(stateChangeCallbacks) {
         }, 1);
     }
     resetScene();
+
+    let lastHash = window.location.hash; // for debounce to work, we must compare the actual last state
+    const writeUrlHash = _.debounce((h) => { window.location.hash = h; neverWrittenHash = false; },
+                                    500, {trailing: true});
+    function updateStateHash() {
+      const newHash = '#' + stateToHash(sceneData.mapCentre, worldClock, controls);
+      if (newHash !== lastHash) {
+        writeUrlHash(newHash);
+      }
+      lastHash = newHash;
+    }
 
     // Other rendering helpers
     function resizeRendererToDisplaySize(renderer) {
@@ -468,6 +504,8 @@ function threeMainSetup(stateChangeCallbacks) {
           resetScene();
         }
       }
+
+      updateStateHash();
     }
 
     //...Any cleanup youd like (optional)
