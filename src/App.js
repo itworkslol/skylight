@@ -1,7 +1,8 @@
 import './App.css';
 import {
-  LAT_LONG_ORIGIN, BuildingMap, latLongToRenderMetres,
-  osmTileList, osmTileToLatLong, osmTileSize, osmTileUrl,
+  LAT_LONG_ORIGIN, BuildingMap,
+  latLongToRenderMetres, renderMetresToLatLong,
+  MAP_RENDER_DIST, osmTileList, osmTileToLatLong, osmTileSize, osmTileUrl,
 } from './BuildingMap.js';
 import WorldClock from './WorldClock.js';
 import React from 'react';
@@ -146,7 +147,7 @@ function threeMainSetup(stateChangeCallbacks) {
     controls.dampingFactor = 0.25; // Inertia factor
     controls.screenSpacePanning = false;
 
-    function createScene(mapCenter) {
+    function createScene(mapCentre) {
       // Setup scene
       const scene = new THREE.Scene();
       const sceneMemory = [];
@@ -163,7 +164,7 @@ function threeMainSetup(stateChangeCallbacks) {
         scene.add(cube);
       }
 
-      const groundTiles = osmTileList(mapCenter.lat, mapCenter.long, 500);
+      const groundTiles = osmTileList(mapCentre.lat, mapCentre.long, 500);
       for (let tileInfo of groundTiles) {
         const {lat, long} = osmTileToLatLong(tileInfo);
         const [tileY, tileX] = latLongToRenderMetres(lat, long);
@@ -371,10 +372,10 @@ function threeMainSetup(stateChangeCallbacks) {
       }
 
       // done creating scene
-      return { mapCenter, scene, sceneMemory, updateSunPosition, removeCanvasListeners };
+      return { mapCentre, scene, sceneMemory, updateSunPosition, removeCanvasListeners };
     }
 
-    let sceneData = { mapCenter: LAT_LONG_ORIGIN, scene: undefined };
+    let sceneData = { mapCentre: LAT_LONG_ORIGIN, scene: undefined };
     function resetScene() {
       setSpinner(true);
       sceneData.scene = undefined;
@@ -388,7 +389,7 @@ function threeMainSetup(stateChangeCallbacks) {
               remove();
             }
           }
-          sceneData = createScene(sceneData.mapCenter);
+          sceneData = createScene(sceneData.mapCentre);
           mvpGui_DebugFlag.onChange(() => { resetScene(); });
         }, 1);
     }
@@ -444,6 +445,15 @@ function threeMainSetup(stateChangeCallbacks) {
         renderer.render(sceneData.scene, camera);
         onFrame();
         setSpinner(false);
+
+        // Redraw on map pan. For now, just reset everything.
+        const [mapCentreY, mapCentreX] = latLongToRenderMetres(sceneData.mapCentre.lat, sceneData.mapCentre.long);
+        const panDistance = new THREE.Vector2(mapCentreX, mapCentreY).distanceTo(new THREE.Vector2(controls.target.x, controls.target.y));
+        if (panDistance > MAP_RENDER_DIST) {
+          const [lat, long] = renderMetresToLatLong(controls.target.x, controls.target.y);
+          sceneData.mapCentre = {lat, long};
+          resetScene();
+        }
       }
     }
 

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 const OSM_ZOOM = 17;
-const OSM_RENDER_DIST = 1000; // m
+const MAP_RENDER_DIST = 300; // m
 
 const buildingLodFadeIn = 200.0 // m
 const buildingLodFadeOut = 400.0 // m
@@ -17,6 +17,12 @@ function latLongToRenderMetres(lat, long) {
   const R = 6370000;
   const {lat: lat0, long: long0} = LAT_LONG_ORIGIN;
   return [(lat-lat0) * RAD * R, (long-long0) * RAD * R * Math.cos(lat0 * RAD)];
+}
+
+function renderMetresToLatLong(x, y) {
+  const R = 6370000;
+  const {lat: lat0, long: long0} = LAT_LONG_ORIGIN;
+  return [y / R / RAD + lat0, x / Math.cos(lat0 * RAD) / R / RAD + long0];
 }
 
 // List of Slippy tile IDs (zoom, x, y)
@@ -170,6 +176,7 @@ class BuildingMap {
 }
 
 export {
-  LAT_LONG_ORIGIN, BuildingMap,
-  latLongToRenderMetres, osmTileList, osmTileToLatLong, osmTileToBBox, osmTileSize, osmTileUrl,
+  LAT_LONG_ORIGIN, MAP_RENDER_DIST, BuildingMap,
+  latLongToRenderMetres, renderMetresToLatLong,
+  osmTileList, osmTileToLatLong, osmTileToBBox, osmTileSize, osmTileUrl,
 };
