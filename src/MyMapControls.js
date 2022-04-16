@@ -171,7 +171,7 @@ class MyMapControls extends EventDispatcher {
                 debugFrameCount++;
                 function debuglog(msg) {
                     if (debugFrameCount % 30 === 0) {
-                        console.log(msg);
+                        //console.log(msg);
                     }
                 }
 

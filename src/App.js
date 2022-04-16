@@ -39,12 +39,17 @@ const RAD = 180 / Math.PI;
 
 const worldClock = new WorldClock(LAT_LONG_ORIGIN[0], LAT_LONG_ORIGIN[1]);
 
+const UserRenderSettings = {
+  DrawDebugGeometry: false,
+};
+
 const mvpGui = new GUI();
 const mvpGui_Day = mvpGui.add(worldClock, 'day', 1, 365, 1);
 const mvpGui_DayName = mvpGui.add(worldClock, 'dayName');
 mvpGui_DayName.disable();
 const mvpGui_Hour = mvpGui.add(worldClock, 'hour', 0, 24, 0.1);
 mvpGui.add(worldClock, 'autoplay', ['', 'hour', 'day']);
+const mvpGui_DebugFlag = mvpGui.add(UserRenderSettings, 'DrawDebugGeometry', false);
 
 worldClock.setGuiControllers(mvpGui_Day, mvpGui_DayName, mvpGui_Hour);
 
@@ -107,10 +112,9 @@ class PickHelper {
 
 const pickHelper = new PickHelper();
 const PICK_ON_CLICK = true;
-const DRAW_DEBUG_GEOMETRY = false;
 
 function threeMainSetup(stateChangeCallbacks) {
-  const {onPickObject, onSunAngleChanged, onFrame} = stateChangeCallbacks;
+  const {onPickObject, onSunAngleChanged, onFrame, setSpinner} = stateChangeCallbacks;
 
   async function threeMain(canvas)
   {
@@ -139,195 +143,240 @@ function threeMainSetup(stateChangeCallbacks) {
     controls.dampingFactor = 0.25; // Inertia factor
     controls.screenSpacePanning = false;
 
-    // Setup scene
-    const scene = new THREE.Scene();
-    const textureLoader = new THREE.TextureLoader();
-    {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshLambertMaterial({color: 0x44aa88});
-      const cube = new THREE.Mesh(geometry, material);
-      scene.add(cube);
-    }
-
-    {
-      const ground = new THREE.PlaneGeometry(1000, 1000);
-      console.log(`loading base texture: ${mapBaseImage}`);
-      const material = new THREE.MeshLambertMaterial({map: textureLoader.load(mapBaseImage)});
-      const mesh = new THREE.Mesh(ground, material).translateZ(-0.1);
-      mesh.receiveShadow = true;
-      mesh.opaqueToPick = true;
-      scene.add(mesh);
-    }
-
-    // building materials
-    const wallTexture = textureLoader.load(buildingTextureImage);
-    wallTexture.wrapS = THREE.RepeatWrapping;
-    wallTexture.wrapT = THREE.RepeatWrapping;
-    const wallMaterial = new THREE.MeshLambertMaterial({ map: wallTexture });
-    const roofMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const buildingMaterial = [roofMaterial, wallMaterial];
-
-    const pickWallMaterial = new THREE.MeshLambertMaterial({ map: wallTexture, emissive: 0x333399 });
-    const pickRoofMaterial = new THREE.MeshLambertMaterial({ color: 0xcccccc, emissive: 0x333399 });
-    const pickBuildingMaterial = [pickRoofMaterial, pickWallMaterial];
-
-    for (const [building_id] of buildingMap.buildings)
-    {
-      const [footprint, [originX, originY]] = buildingMap.buildingFootprint(building_id);
-      const height = buildingMap.buildingHeight(building_id) ?? 0;
-      let geometry;
-      let heightScale = 1;
-      if (height > 0) {
-        // define the geometry with 1 level/m so that the wall texture works with default UV
-        const extrudeSettings = {
-          steps: 1,
-          depth: buildingMap.buildingLevels(building_id) ?? 1,
-          bevelEnabled: false,
-          bevelThickness: 0.5,
-          bevelSize: 0.5,
-          bevelSegments: 1,
-        };
-        geometry = new THREE.ExtrudeGeometry( footprint, extrudeSettings );
-        geometry.scale(1, 1, height / extrudeSettings.depth);
-      } else {
-        geometry = new THREE.ShapeGeometry( footprint );
+    function createScene() {
+      // Setup scene
+      const scene = new THREE.Scene();
+      const sceneMemory = [];
+      const removeCanvasListeners = [];
+      function memManaged(obj) {
+        sceneMemory.push(obj);
+        return obj;
       }
-
-      // building faces
-      const mesh = new THREE.Mesh(geometry, buildingMaterial);
-      mesh.position.set(originX, originY, 0);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.pickData = {building_id, pickMaterial: pickBuildingMaterial, pickObject: mesh};
-      scene.add( mesh );
-
-      // building outline
-      if (true) {
-        const edges = new THREE.EdgesGeometry( geometry );
-        const edgesMat = new THREE.LineBasicMaterial({color: 0x000000 });
-        const edgesMesh = new THREE.LineSegments(edges, edgesMat);
-        edgesMesh.position.set(originX, originY, 0);
-        edgesMesh.pickData = {pickObject: mesh}; // redirect to main object
-        scene.add(edgesMesh);
-      }
-    }
-
-    // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
-    scene.add(ambientLight);
-    const lightDistance = 400; // FIXME: should be just outside scene
-
-    const debugSunDisk = [];
-    const sunLights = [];
-    function updateSunPosition() {
-      const {hourAngle, altitudeAngle, azimuth} = worldClock.sunAngle();
-      onSunAngleChanged({hourAngle, altitudeAngle, azimuth});
-
-      for (const light of sunLights) {
-        light.position.set(0, 0, lightDistance);
-        const zenith = altitudeAngle - Math.PI/2;
-        light.position.applyAxisAngle(new THREE.Vector3(1, 0, 0), zenith);
-        light.position.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
-        if (altitudeAngle < 0) {
-          light.intensity = 0;
-        } else {
-          light.intensity = 1;
-        }
-        // twilight hack
-        const twilightHA = 0.5 * 15*DEG;
-        ambientLight.intensity = 0.1 + 0.2 * Math.sqrt(Math.max(0, Math.sin((altitudeAngle + twilightHA) * Math.PI / (Math.PI + 2*twilightHA))));
-        ambientLight.color.b = ambientLight.intensity;
-        ambientLight.color.g = 1 - (1 - ambientLight.intensity)/2;
-      }
-
-      if (DRAW_DEBUG_GEOMETRY) {
-        // debug sun disk
-        let sunDiskPoint = new THREE.Vector3();
-        for (let h = 0; h < 24; h++) {
-          const {altitudeAngle, azimuth} = worldClock.sunAngle(worldClock.day, h);
-          sunDiskPoint.set(0, 0, lightDistance);
-          const zenith = altitudeAngle - Math.PI/2;
-          sunDiskPoint.applyAxisAngle(new THREE.Vector3(1, 0, 0), zenith);
-          sunDiskPoint.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
-          if (debugSunDisk.length < 24) {
-            const endpoints = new Float32Array(2 * 3);
-            new THREE.Vector3(0, 0, 0).toArray(endpoints, 0 * 3);
-            const lineGeom = new THREE.BufferGeometry();
-            lineGeom.setAttribute('position', new THREE.BufferAttribute(endpoints, 3));
-            const lineMat = new THREE.LineBasicMaterial({color: 0xffcccc});
-            const line = new THREE.Line(lineGeom, lineMat);
-            scene.add(line);
-            debugSunDisk.push(line);
-          }
-          {
-            const line = debugSunDisk[h];
-            sunDiskPoint.toArray(line.geometry.attributes.position.array, 1 * 3);
-            line.geometry.attributes.position.needsUpdate = true;
-          }
-        }
-      }
-    }
-
-    const sky_light_offset = 50;
-    for (const [dx, dy, color] of [
-        [0, 0, 0xFFFFCC],
-        //[1, 1, 0x102040], [1, -1, 0x102040], [-1, 1, 0x102040], [-1, -1, 0x102040]
-      ])
-    {
-      const intensity = 1;
-      const light = new THREE.DirectionalLight(color, intensity);
-      light.target.position.set(dx*sky_light_offset, dy*sky_light_offset, 0);
-      light.castShadow = true;
-
-      if (DRAW_DEBUG_GEOMETRY)
+      const textureLoader = new THREE.TextureLoader();
       {
-        const sphere = new THREE.SphereGeometry(5, 16, 8);
-        const lightMat = new THREE.MeshBasicMaterial({color: 0xffffdd});
-        const lightBulb = new THREE.Mesh(sphere, lightMat);
-        light.add(lightBulb);
+        const geometry = memManaged(new THREE.BoxGeometry(1, 1, 1));
+        const material = memManaged(new THREE.MeshLambertMaterial({color: 0x44aa88}));
+        const cube = new THREE.Mesh(geometry, material);
+        scene.add(cube);
       }
 
-      scene.add(light);
-      scene.add(light.target);
-      sunLights.push(light);
-
-      if (DRAW_DEBUG_GEOMETRY) {
-        const helper = new THREE.DirectionalLightHelper(light, 10);
-        scene.add(helper);
+      {
+        const ground = memManaged(new THREE.PlaneGeometry(1000, 1000));
+        console.log(`loading base texture: ${mapBaseImage}`);
+        const material = memManaged(new THREE.MeshLambertMaterial({map: textureLoader.load(mapBaseImage)}));
+        const mesh = new THREE.Mesh(ground, material).translateZ(-0.1);
+        mesh.receiveShadow = true;
+        mesh.opaqueToPick = true;
+        scene.add(mesh);
       }
 
-      light.shadow.camera.left = -lightDistance;
-      light.shadow.camera.right = lightDistance;
-      light.shadow.camera.bottom = -lightDistance;
-      light.shadow.camera.top = lightDistance;
-      light.shadow.camera.far = 2 * lightDistance; // FIXME reach whole surface
-      if (DRAW_DEBUG_GEOMETRY) {
-        const cameraHelper = new THREE.CameraHelper(light.shadow.camera);
-        scene.add(cameraHelper);
-      }
-    }
-    updateSunPosition(); // initialise
+      // building materials
+      const wallTexture = memManaged(textureLoader.load(buildingTextureImage));
+      wallTexture.wrapS = THREE.RepeatWrapping;
+      wallTexture.wrapT = THREE.RepeatWrapping;
+      const wallMaterial = memManaged(new THREE.MeshLambertMaterial({ map: wallTexture }));
+      const roofMaterial = memManaged(new THREE.MeshLambertMaterial({ color: 0xffffff }));
+      const buildingMaterial = [roofMaterial, wallMaterial];
 
-    // Setup picking
-    if (PICK_ON_CLICK) {
-      let mouseDownAt = null;
-      // Ignore drag events (from camera controller). Yuck!
-      canvas.addEventListener('mousedown', (event) => {
-        if (event.button === 0) mouseDownAt = {x: event.clientX, y: event.clientY}
-      });
-      canvas.addEventListener('mouseup', (event) => {
-        if (event.button === 0 && mouseDownAt && event.clientX == mouseDownAt.x && event.clientY == mouseDownAt.y) {
-          pickHelper.setPickPosition(canvas, event);
-          pickHelper.pick(pickHelper.pickPosition, scene, camera);
-          onPickObject(pickHelper.pickedObject);
-          mouseDownAt = null;
+      const pickWallMaterial = memManaged(new THREE.MeshLambertMaterial({ map: wallTexture, emissive: 0x333399 }));
+      const pickRoofMaterial = memManaged(new THREE.MeshLambertMaterial({ color: 0xcccccc, emissive: 0x333399 }));
+      const pickBuildingMaterial = [pickRoofMaterial, pickWallMaterial];
+
+      for (const [building_id] of buildingMap.buildings)
+      {
+        const [footprint, [originX, originY]] = buildingMap.buildingFootprint(building_id);
+        const height = buildingMap.buildingHeight(building_id) ?? 0;
+        let geometry;
+        let heightScale = 1;
+        if (height > 0) {
+          // define the geometry with 1 level/m so that the wall texture works with default UV
+          const extrudeSettings = {
+            steps: 1,
+            depth: buildingMap.buildingLevels(building_id) ?? 1,
+            bevelEnabled: false,
+            bevelThickness: 0.5,
+            bevelSize: 0.5,
+            bevelSegments: 1,
+          };
+          geometry = memManaged(new THREE.ExtrudeGeometry( footprint, extrudeSettings ));
+          geometry.scale(1, 1, height / extrudeSettings.depth);
+        } else {
+          geometry = memManaged(new THREE.ShapeGeometry( footprint ));
         }
-      });
-    } else {
-      canvas.addEventListener('mousemove', (event) => pickHelper.setPickPosition(canvas, event));
-      canvas.addEventListener('mouseout', (event) => pickHelper.clearPickPosition());
-      canvas.addEventListener('mouseleave', (event) => pickHelper.clearPickPosition());
+
+        // building faces
+        const mesh = new THREE.Mesh(geometry, buildingMaterial);
+        mesh.position.set(originX, originY, 0);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.pickData = {building_id, pickMaterial: pickBuildingMaterial, pickObject: mesh};
+        scene.add( mesh );
+
+        // building outline
+        if (true) {
+          const edges = memManaged(new THREE.EdgesGeometry( geometry ));
+          const edgesMat = memManaged(new THREE.LineBasicMaterial({color: 0x000000 }));
+          const edgesMesh = new THREE.LineSegments(edges, edgesMat);
+          edgesMesh.position.set(originX, originY, 0);
+          edgesMesh.pickData = {pickObject: mesh}; // redirect to main object
+          scene.add(edgesMesh);
+        }
+      }
+
+      // Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+      scene.add(ambientLight);
+      const lightDistance = 400; // FIXME: should be just outside scene
+
+      const debugSunDisk = [];
+      const sunLights = [];
+      function updateSunPosition() {
+        const {hourAngle, altitudeAngle, azimuth} = worldClock.sunAngle();
+        onSunAngleChanged({hourAngle, altitudeAngle, azimuth});
+
+        for (const light of sunLights) {
+          light.position.set(0, 0, lightDistance);
+          const zenith = altitudeAngle - Math.PI/2;
+          light.position.applyAxisAngle(new THREE.Vector3(1, 0, 0), zenith);
+          light.position.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
+          if (altitudeAngle < 0) {
+            light.intensity = 0;
+          } else {
+            light.intensity = 1;
+          }
+          // twilight hack
+          const twilightHA = 0.5 * 15*DEG;
+          ambientLight.intensity = 0.1 + 0.2 * Math.sqrt(Math.max(0, Math.sin((altitudeAngle + twilightHA) * Math.PI / (Math.PI + 2*twilightHA))));
+          ambientLight.color.b = ambientLight.intensity;
+          ambientLight.color.g = 1 - (1 - ambientLight.intensity)/2;
+        }
+
+        if (UserRenderSettings.DrawDebugGeometry) {
+          // debug sun disk
+          let sunDiskPoint = new THREE.Vector3();
+          const lineMat = memManaged(new THREE.LineBasicMaterial({color: 0xffcccc}));
+          for (let h = 0; h < 24; h++) {
+            const {altitudeAngle, azimuth} = worldClock.sunAngle(worldClock.day, h);
+            sunDiskPoint.set(0, 0, lightDistance);
+            const zenith = altitudeAngle - Math.PI/2;
+            sunDiskPoint.applyAxisAngle(new THREE.Vector3(1, 0, 0), zenith);
+            sunDiskPoint.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
+            if (debugSunDisk.length < 24) {
+              const endpoints = new Float32Array(2 * 3);
+              new THREE.Vector3(0, 0, 0).toArray(endpoints, 0 * 3);
+              const lineGeom = memManaged(new THREE.BufferGeometry());
+              lineGeom.setAttribute('position', new THREE.BufferAttribute(endpoints, 3));
+              const line = new THREE.Line(lineGeom, lineMat);
+              scene.add(line);
+              debugSunDisk.push(line);
+            }
+            {
+              const line = debugSunDisk[h];
+              sunDiskPoint.toArray(line.geometry.attributes.position.array, 1 * 3);
+              line.geometry.attributes.position.needsUpdate = true;
+            }
+          }
+        }
+      }
+
+      const sky_light_offset = 50;
+      for (const [dx, dy, color] of [
+          [0, 0, 0xFFFFCC],
+          //[1, 1, 0x102040], [1, -1, 0x102040], [-1, 1, 0x102040], [-1, -1, 0x102040]
+        ])
+      {
+        const intensity = 1;
+        const light = new THREE.DirectionalLight(color, intensity);
+        light.target.position.set(dx*sky_light_offset, dy*sky_light_offset, 0);
+        light.castShadow = true;
+
+        if (UserRenderSettings.DrawDebugGeometry)
+        {
+          const sphere = memManaged(new THREE.SphereGeometry(5, 16, 8));
+          const lightMat = memManaged(new THREE.MeshBasicMaterial({color: 0xffffdd}));
+          const lightBulb = new THREE.Mesh(sphere, lightMat);
+          light.add(lightBulb);
+        }
+
+        scene.add(light);
+        scene.add(light.target);
+        sunLights.push(light);
+
+        if (UserRenderSettings.DrawDebugGeometry) {
+          const helper = new THREE.DirectionalLightHelper(light, 10);
+          scene.add(helper);
+        }
+
+        light.shadow.camera.left = -lightDistance;
+        light.shadow.camera.right = lightDistance;
+        light.shadow.camera.bottom = -lightDistance;
+        light.shadow.camera.top = lightDistance;
+        light.shadow.camera.far = 2 * lightDistance; // FIXME reach whole surface
+        if (UserRenderSettings.DrawDebugGeometry) {
+          const cameraHelper = new THREE.CameraHelper(light.shadow.camera);
+          scene.add(cameraHelper);
+        }
+      }
+      updateSunPosition(); // initialise
+
+      function addRemovableEventListener(eventName, handler) {
+        canvas.addEventListener(eventName, handler);
+        removeCanvasListeners.push(() => canvas.removeEventListener(eventName, handler));
+      }
+
+      // Setup picking
+      if (PICK_ON_CLICK) {
+        let mouseDownAt = null;
+        // Ignore drag events (from camera controller). Yuck!
+        function mousedownHandler(event) {
+          if (event.button === 0) mouseDownAt = {x: event.clientX, y: event.clientY};
+        }
+        addRemovableEventListener('mousedown', mousedownHandler);
+        function mouseupHandler(event) {
+          if (event.button === 0 && mouseDownAt && event.clientX == mouseDownAt.x && event.clientY == mouseDownAt.y) {
+            pickHelper.setPickPosition(canvas, event);
+            pickHelper.pick(pickHelper.pickPosition, scene, camera);
+            onPickObject(pickHelper.pickedObject);
+            mouseDownAt = null;
+          }
+        }
+        addRemovableEventListener('mouseup', mouseupHandler);
+      } else {
+        function mousemoveHandler(event) { pickHelper.setPickPosition(canvas, event); }
+        addRemovableEventListener('mousemove', mousemoveHandler);
+        function clearPickHandler(event) { pickHelper.clearPickPosition(); }
+        addRemovableEventListener('mouseout', clearPickHandler);
+        addRemovableEventListener('mouseleave', clearPickHandler);
+      }
+
+      if (UserRenderSettings.DrawDebugGeometry) {
+        const axesHelper = new THREE.AxesHelper(50);
+        scene.add( axesHelper );
+      }
+
+      // done creating scene
+      return { scene, sceneMemory, updateSunPosition, removeCanvasListeners };
     }
+
+    let sceneData = { scene: undefined };
+    function resetScene() {
+      setSpinner(true);
+      sceneData.scene = undefined;
+      // reset in the next event cycle so that the spinner appears first
+      setTimeout(() => {
+          if (sceneData.scene !== undefined) {
+            for (let obj of sceneData.sceneMemory) {
+              obj.dispose();
+            }
+            for (let remove of sceneData.removeCanvasListeners) {
+              remove();
+            }
+          }
+          sceneData = createScene();
+          mvpGui_DebugFlag.onChange(() => { resetScene(); });
+        }, 1);
+    }
+    resetScene();
 
     // Other rendering helpers
     function resizeRendererToDisplaySize(renderer) {
@@ -341,11 +390,6 @@ function threeMainSetup(stateChangeCallbacks) {
       return needResize;
     }
 
-    if (DRAW_DEBUG_GEOMETRY) {
-      const axesHelper = new THREE.AxesHelper(50);
-      scene.add( axesHelper );
-    }
-
     //...Render loop without requestAnimationFrame()
     function render(timeMs) {
       if (resizeRendererToDisplaySize(renderer)) {
@@ -356,7 +400,7 @@ function threeMainSetup(stateChangeCallbacks) {
 
       if (!PICK_ON_CLICK) {
         const lastPicked = pickHelper.pickedObject;
-        pickHelper.pick(pickHelper.pickPosition, scene, camera);
+        pickHelper.pick(pickHelper.pickPosition, sceneData.scene, camera);
         if (lastPicked !== pickHelper.pickedObject) {
           onPickObject(pickHelper.pickedObject);
         }
@@ -378,10 +422,13 @@ function threeMainSetup(stateChangeCallbacks) {
         }
       }
 
-      updateSunPosition();
+      if (sceneData.updateSunPosition) sceneData.updateSunPosition();
 
-      renderer.render(scene, camera);
-      onFrame();
+      if (sceneData.scene) {
+        renderer.render(sceneData.scene, camera);
+        onFrame();
+        setSpinner(false);
+      }
     }
 
     //...Any cleanup youd like (optional)
@@ -464,6 +511,7 @@ class App extends React.Component {
       pickedObjectData: null,
       sunAngle: null,
       fpsCounter: new FPSCounter(),
+      spinnerVisible: true, // initial load
     };
   }
 
@@ -477,6 +525,13 @@ class App extends React.Component {
 
   onFrame() {
     this.state.fpsCounter.onFrame();
+  }
+  
+  setSpinner(visible) {
+    // HACK also immediately update DOM, don't wait for React
+    document.getElementById('canvas-spinner').style.display = (visible? 'block' : 'none');
+    if (visible !== this.state.spinnerVisible) console.log(`${Date.now()}: canvas-spinner = ${visible}`);
+    this.setState({spinnerVisible: visible});
   }
 
   renderBuildingProps() {
@@ -503,12 +558,27 @@ class App extends React.Component {
             script={threeMainSetup({
               onPickObject: (x) => thisApp.onPickObject(x),
               onSunAngleChanged: (x) => thisApp.onSunAngleChanged(x),
-              onFrame: () => this.onFrame(),
+              onFrame: () => thisApp.onFrame(),
+              setSpinner: (visible) => thisApp.setSpinner(visible),
             })}
             className="map-canvas"
         />
 
         <div id="ui-overlay">
+          <div>
+            <div id="canvas-spinner" style={{
+                display: 'block', //(thisApp.state.spinnerVisible? 'block' : 'none'),
+                position: 'absolute',
+                zIndex: 9,
+                fontSize: '10vw', // lol works?
+                left: '45vw',
+                top: '45vh',
+                padding: '20px',
+                backgroundColor: 'darkgrey',
+                color: 'white',
+              }}>⏳</div>
+          </div>
+
           <Rnd
             className="ui-pane"
             default={{

@@ -8,6 +8,8 @@ const buildingLodFadeOut = 400.0 // m
 const LAT_LONG_ORIGIN = initialPosition;
 const BUILDING_LEVEL_HEIGHT = 4.0;
 
+const DEBUG_BUILDINGS = false;
+
 function latLongToMetres(lat, long) {
   const R = 6370000;
   const RAD = Math.PI / 180;
@@ -43,7 +45,7 @@ class BuildingMap {
       }
     }
 
-    console.log(`Loaded ${this.buildings.size} buildings`);
+    if (DEBUG_BUILDINGS) console.log(`Loaded ${this.buildings.size} buildings`);
   }
 
   buildingFootprint(building_id) {
@@ -57,18 +59,18 @@ class BuildingMap {
     const [min_latM, min_longM] = screenCoords(latLongToMetres(min_lat, min_long));
 
     const shape = new THREE.Shape();
-    console.log(`Outlining building: ${describeBuilding(this.buildings.get(building_id))}`);
-    console.log(`* Origin: ${min_latM}, ${min_longM}`);
+    if (DEBUG_BUILDINGS) console.log(`Outlining building: ${describeBuilding(this.buildings.get(building_id))}`);
+    if (DEBUG_BUILDINGS) console.log(`* Origin: ${min_latM}, ${min_longM}`);
     for (let i = 0; i <= nodes.length; i++) {
       let {lat, lon: long} = this.nodes.get(nodes[i % nodes.length]);
       let [latM, longM] = screenCoords(latLongToMetres(lat, long));
       latM -= min_latM;
       longM -= min_longM;
       if (i === 0) {
-        console.log(`* ${latM}, ${longM}`);
+        if (DEBUG_BUILDINGS) console.log(`* ${latM}, ${longM}`);
         shape.moveTo(latM, longM);
       } else {
-        console.log(`* ${latM}, ${longM}`);
+        if (DEBUG_BUILDINGS) console.log(`* ${latM}, ${longM}`);
         shape.lineTo(latM, longM);
       }
     }
