@@ -602,7 +602,7 @@ class App extends React.Component {
             className="map-canvas"
         />
 
-        <div id="osm-license" style={{
+        <div id="license-info" style={{
             position: 'absolute',
             zIndex: 9,
             bottom: 0,
@@ -611,7 +611,9 @@ class App extends React.Component {
             backgroundColor: 'lightgrey',
             color: 'black',
             opacity: 0.8,
-          }}>Map data © <a href="https://openstreetmap.org/contributors">OpenStreetMap contributors</a>
+          }}>
+          <div><strong><a href="https://github.com/JaphethLim/skylight">Skylight</a></strong> pre-pre-alpha</div>
+          <div>Map data © <a href="https://openstreetmap.org/contributors">OpenStreetMap contributors</a></div>
         </div>
 
         <div id="ui-overlay">
