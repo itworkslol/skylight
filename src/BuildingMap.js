@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
-const OSM_ZOOM = 17;
-const MAP_RENDER_DIST = 300; // m
+const OSM_ZOOM = 15;
+const MAP_RENDER_DIST = 1000; // m
 
 const buildingLodFadeIn = 200.0 // m
 const buildingLodFadeOut = 400.0 // m

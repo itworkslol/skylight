@@ -25,8 +25,7 @@ import { Rnd } from 'react-rnd';
 import * as Plot from "@observablehq/plot";
 import { PlotFigure } from 'plot-react';
 
-import mapData from './Camperdown.json'
-import mapBaseImage from './Camperdown small.png'
+import fullMapData from './sydney_city_buildings.json' // TODO split
 
 /* This code is needed to properly load the images in the Leaflet CSS */
 delete L.Icon.Default.prototype._getIconUrl;
@@ -36,7 +35,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: shadowIcon,
 });
 
-const buildingMap = new BuildingMap(mapData);
+let buildingMap = new BuildingMap(fullMapData);
 
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
@@ -146,6 +145,7 @@ function threeMainSetup(stateChangeCallbacks) {
     controls.enableDamping = false; // Enables inertia on the camera making it come to a more gradual stop.
     controls.dampingFactor = 0.25; // Inertia factor
     controls.screenSpacePanning = false;
+    controls.maxDistance = 2000;
 
     function createScene(mapCentre) {
       // Setup scene
@@ -199,9 +199,14 @@ function threeMainSetup(stateChangeCallbacks) {
       const pickRoofMaterial = memManaged(new THREE.MeshLambertMaterial({ color: 0xcccccc, emissive: 0x333399 }));
       const pickBuildingMaterial = [pickRoofMaterial, pickWallMaterial];
 
+      const [mapCentreY, mapCentreX] = latLongToRenderMetres(mapCentre.lat, mapCentre.long);
       for (const [building_id] of buildingMap.buildings)
       {
         const [footprint, [originX, originY]] = buildingMap.buildingFootprint(building_id);
+        if (!(Math.sqrt(Math.pow(originX - mapCentreX, 2) + Math.pow(originY - mapCentreY, 2)) < MAP_RENDER_DIST)) {
+          continue;
+        }
+
         const height = buildingMap.buildingHeight(building_id) ?? 0;
         let geometry;
         let heightScale = 1;
@@ -243,7 +248,7 @@ function threeMainSetup(stateChangeCallbacks) {
       // Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
       scene.add(ambientLight);
-      const lightDistance = 400; // FIXME: should be just outside scene
+      const lightDistance = MAP_RENDER_DIST; // FIXME: should be just outside scene
 
       const debugSunDisk = [];
       const sunLights = [];
@@ -256,17 +261,18 @@ function threeMainSetup(stateChangeCallbacks) {
           const zenith = altitudeAngle - Math.PI/2;
           light.position.applyAxisAngle(new THREE.Vector3(1, 0, 0), zenith);
           light.position.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
+          light.translateX(mapCentreX).translateY(mapCentreY);
           if (altitudeAngle < 0) {
             light.intensity = 0;
           } else {
             light.intensity = 1;
           }
-          // twilight hack
-          const twilightHA = 0.5 * 15*DEG;
-          ambientLight.intensity = 0.1 + 0.2 * Math.sqrt(Math.max(0, Math.sin((altitudeAngle + twilightHA) * Math.PI / (Math.PI + 2*twilightHA))));
-          ambientLight.color.b = ambientLight.intensity;
-          ambientLight.color.g = 1 - (1 - ambientLight.intensity)/2;
         }
+        // twilight hack
+        const twilightHA = 0.5 * 15*DEG;
+        ambientLight.intensity = 0.1 + 0.2 * Math.sqrt(Math.max(0, Math.sin((altitudeAngle + twilightHA) * Math.PI / (Math.PI + 2*twilightHA))));
+        ambientLight.color.b = ambientLight.intensity;
+        ambientLight.color.g = 1 - (1 - ambientLight.intensity)/2;
 
         if (UserRenderSettings.DrawDebugGeometry) {
           // debug sun disk
@@ -284,6 +290,7 @@ function threeMainSetup(stateChangeCallbacks) {
               const lineGeom = memManaged(new THREE.BufferGeometry());
               lineGeom.setAttribute('position', new THREE.BufferAttribute(endpoints, 3));
               const line = new THREE.Line(lineGeom, lineMat);
+              line.translateX(mapCentreX).translateY(mapCentreY);
               scene.add(line);
               debugSunDisk.push(line);
             }
@@ -315,6 +322,9 @@ function threeMainSetup(stateChangeCallbacks) {
           light.add(lightBulb);
         }
 
+        light.translateX(mapCentreX).translateY(mapCentreY);
+        light.target.translateX(mapCentreX).translateY(mapCentreY);
+
         scene.add(light);
         scene.add(light.target);
         sunLights.push(light);
@@ -329,6 +339,9 @@ function threeMainSetup(stateChangeCallbacks) {
         light.shadow.camera.bottom = -lightDistance;
         light.shadow.camera.top = lightDistance;
         light.shadow.camera.far = 2 * lightDistance; // FIXME reach whole surface
+        light.shadow.mapSize = new THREE.Vector2(1024, 1024);
+        //light.shadow.camera.translateX(mapCentreX).translateY(mapCentreY);
+        light.shadow.camera.updateProjectionMatrix();
         if (UserRenderSettings.DrawDebugGeometry) {
           const cameraHelper = new THREE.CameraHelper(light.shadow.camera);
           scene.add(cameraHelper);
@@ -556,7 +569,6 @@ class App extends React.Component {
   setSpinner(visible) {
     // HACK also immediately update DOM, don't wait for React
     document.getElementById('canvas-spinner').style.display = (visible? 'block' : 'none');
-    if (visible !== this.state.spinnerVisible) console.log(`${Date.now()}: canvas-spinner = ${visible}`);
     this.setState({spinnerVisible: visible});
   }
 
@@ -593,7 +605,7 @@ class App extends React.Component {
         <div id="ui-overlay">
           <div>
             <div id="canvas-spinner" style={{
-                display: 'block', //(thisApp.state.spinnerVisible? 'block' : 'none'),
+                display: (thisApp.state.spinnerVisible? 'block' : 'none'),
                 position: 'absolute',
                 zIndex: 9,
                 fontSize: '10vw', // lol works?
