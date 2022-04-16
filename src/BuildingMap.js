@@ -1,20 +1,69 @@
 import * as THREE from 'three';
 
-const initialPosition = [-33.887, 151.179] // Sydney
+const OSM_ZOOM = 17;
+const OSM_RENDER_DIST = 1000; // m
 
 const buildingLodFadeIn = 200.0 // m
 const buildingLodFadeOut = 400.0 // m
 
-const LAT_LONG_ORIGIN = initialPosition;
+const LAT_LONG_ORIGIN = {lat: -33.887, long: 151.179}; // Sydney
 const BUILDING_LEVEL_HEIGHT = 4.0;
 
 const DEBUG_BUILDINGS = false;
 
-function latLongToMetres(lat, long) {
+const RAD = Math.PI / 180;
+
+function latLongToRenderMetres(lat, long) {
   const R = 6370000;
-  const RAD = Math.PI / 180;
-  const [lat0, long0] = LAT_LONG_ORIGIN;
+  const {lat: lat0, long: long0} = LAT_LONG_ORIGIN;
   return [(lat-lat0) * RAD * R, (long-long0) * RAD * R * Math.cos(lat0 * RAD)];
+}
+
+// List of Slippy tile IDs (zoom, x, y)
+// Within a <dist> circle around <lat, long>
+function osmTileList(lat, long, dist) {
+  // https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
+  const n = Math.pow(2, OSM_ZOOM);
+  const xTile = Math.floor(n * (long + 180) / 360);
+  const yTile = Math.floor(n * (1 - (Math.log(Math.tan(lat * RAD) + 1/Math.cos(lat * RAD)) / Math.PI)) / 2)
+
+  // TODO use dist
+  let tiles = [];
+  for (let xd = -1; xd <= 1; xd++) {
+    for (let yd = -1; yd <= 1; yd++) {
+      tiles.push({zoom: OSM_ZOOM, x: xTile+xd, y: yTile+yd});
+    }
+  }
+  return tiles;
+}
+
+function osmTileToLatLong(tileInfo) {
+  const {zoom, x, y} = tileInfo;
+  const n = Math.pow(2, zoom);
+  const band = Math.PI - 2*Math.PI*y/n;
+  return {lat: 180 / Math.PI * Math.atan(0.5*(Math.exp(band)-Math.exp(-band))),
+          long: (x / n * 360 - 180)};
+}
+
+function osmTileToBBox(tileInfo) {
+  const {zoom, x, y} = tileInfo;
+  return {nw: osmTileToLatLong(tileInfo), se: osmTileToLatLong({zoom, x: x+1, y: y+1})};
+}
+
+function osmTileSize(tileInfo) {
+  const {nw: {lat: nwLat, long: nwLong}, se: {lat: seLat, long: seLong}} = osmTileToBBox(tileInfo);
+  const [nwy, nwx] = latLongToRenderMetres(nwLat, nwLong);
+  const [sey, sex] = latLongToRenderMetres(seLat, seLong);
+  return {x: sex - nwx, y: nwy - sey};
+}
+
+function osmTileUrl(tileInfo) {
+  const {zoom, x, y} = tileInfo;
+  // FIXME mirror!
+  if (!(Number.isFinite(zoom) && Number.isFinite(x) && Number.isFinite(y))) {
+    throw Error('osmTileUrl: invalid coords');
+  }
+  return `https://tile.openstreetmap.org/${zoom}/${x}/${y}.png`
 }
 
 function describeBuilding(building) {
@@ -56,14 +105,14 @@ class BuildingMap {
       if (min_lat === null || lat < min_lat) min_lat = lat;
       if (min_long === null || long < min_long) min_long = long;
     }
-    const [min_latM, min_longM] = screenCoords(latLongToMetres(min_lat, min_long));
+    const [min_latM, min_longM] = screenCoords(latLongToRenderMetres(min_lat, min_long));
 
     const shape = new THREE.Shape();
     if (DEBUG_BUILDINGS) console.log(`Outlining building: ${describeBuilding(this.buildings.get(building_id))}`);
     if (DEBUG_BUILDINGS) console.log(`* Origin: ${min_latM}, ${min_longM}`);
     for (let i = 0; i <= nodes.length; i++) {
       let {lat, lon: long} = this.nodes.get(nodes[i % nodes.length]);
-      let [latM, longM] = screenCoords(latLongToMetres(lat, long));
+      let [latM, longM] = screenCoords(latLongToRenderMetres(lat, long));
       latM -= min_latM;
       longM -= min_longM;
       if (i === 0) {
@@ -120,4 +169,7 @@ class BuildingMap {
   }
 }
 
-export { initialPosition, LAT_LONG_ORIGIN, BuildingMap };
+export {
+  LAT_LONG_ORIGIN, BuildingMap,
+  latLongToRenderMetres, osmTileList, osmTileToLatLong, osmTileToBBox, osmTileSize, osmTileUrl,
+};

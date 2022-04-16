@@ -1,5 +1,8 @@
 import './App.css';
-import { initialPosition, LAT_LONG_ORIGIN, BuildingMap } from './BuildingMap.js';
+import {
+  LAT_LONG_ORIGIN, BuildingMap, latLongToRenderMetres,
+  osmTileList, osmTileToLatLong, osmTileSize, osmTileUrl,
+} from './BuildingMap.js';
 import WorldClock from './WorldClock.js';
 import React from 'react';
 
@@ -37,7 +40,7 @@ const buildingMap = new BuildingMap(mapData);
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
 
-const worldClock = new WorldClock(LAT_LONG_ORIGIN[0], LAT_LONG_ORIGIN[1]);
+const worldClock = new WorldClock(LAT_LONG_ORIGIN.lat, LAT_LONG_ORIGIN.long);
 
 const UserRenderSettings = {
   DrawDebugGeometry: false,
@@ -143,7 +146,7 @@ function threeMainSetup(stateChangeCallbacks) {
     controls.dampingFactor = 0.25; // Inertia factor
     controls.screenSpacePanning = false;
 
-    function createScene() {
+    function createScene(mapCenter) {
       // Setup scene
       const scene = new THREE.Scene();
       const sceneMemory = [];
@@ -160,14 +163,27 @@ function threeMainSetup(stateChangeCallbacks) {
         scene.add(cube);
       }
 
-      {
-        const ground = memManaged(new THREE.PlaneGeometry(1000, 1000));
-        console.log(`loading base texture: ${mapBaseImage}`);
-        const material = memManaged(new THREE.MeshLambertMaterial({map: textureLoader.load(mapBaseImage)}));
+      const groundTiles = osmTileList(mapCenter.lat, mapCenter.long, 500);
+      for (let tileInfo of groundTiles) {
+        const {lat, long} = osmTileToLatLong(tileInfo);
+        const [tileY, tileX] = latLongToRenderMetres(lat, long);
+        const {x: tileWidth, y: tileHeight} = osmTileSize(tileInfo);
+        const ground = memManaged(new THREE.PlaneGeometry(tileWidth, tileHeight));
+        const tileUrl = osmTileUrl(tileInfo);
+        console.log(`loading map tile: ${tileUrl} at world coords: (${lat}, ${long}), screen coords: (${tileX}, ${tileY}) + (${tileWidth}, ${tileHeight})`);
+        const material = memManaged(new THREE.MeshLambertMaterial({map: textureLoader.load(tileUrl)}));
         const mesh = new THREE.Mesh(ground, material).translateZ(-0.1);
+        mesh.translateX(tileX + tileWidth/2).translateY(tileY - tileHeight/2);
         mesh.receiveShadow = true;
         mesh.opaqueToPick = true;
         scene.add(mesh);
+
+        if (UserRenderSettings.DrawDebugGeometry) {
+          const wireframe = memManaged(new THREE.WireframeGeometry(ground));
+          const line = new THREE.LineSegments(wireframe);
+          line.material = memManaged(new THREE.MeshLambertMaterial({color: 0xffffff}));;
+          scene.add(line);
+        }
       }
 
       // building materials
@@ -355,10 +371,10 @@ function threeMainSetup(stateChangeCallbacks) {
       }
 
       // done creating scene
-      return { scene, sceneMemory, updateSunPosition, removeCanvasListeners };
+      return { mapCenter, scene, sceneMemory, updateSunPosition, removeCanvasListeners };
     }
 
-    let sceneData = { scene: undefined };
+    let sceneData = { mapCenter: LAT_LONG_ORIGIN, scene: undefined };
     function resetScene() {
       setSpinner(true);
       sceneData.scene = undefined;
@@ -372,7 +388,7 @@ function threeMainSetup(stateChangeCallbacks) {
               remove();
             }
           }
-          sceneData = createScene();
+          sceneData = createScene(sceneData.mapCenter);
           mvpGui_DebugFlag.onChange(() => { resetScene(); });
         }, 1);
     }
@@ -444,12 +460,12 @@ function threeMainSetup(stateChangeCallbacks) {
 
 function OSM() {
   return (
-    <MapContainer center={initialPosition} zoom={16} scrollWheelZoom={true}>
+    <MapContainer center={[LAT_LONG_ORIGIN.lat, LAT_LONG_ORIGIN.long]} zoom={16} scrollWheelZoom={true}>
       <TileLayer
         attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      <Marker position={initialPosition}>
+      <Marker position={[LAT_LONG_ORIGIN.lat, LAT_LONG_ORIGIN.long]}>
         <Popup>
           A pretty CSS3 popup. <br /> Easily customizable.
         </Popup>
