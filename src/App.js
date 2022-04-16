@@ -137,7 +137,7 @@ function threeMainSetup(stateChangeCallbacks) {
     const near = 0.1;
     const far = 5000;
     const camera = new THREE.PerspectiveCamera(fov, aspectRatio, near, far);
-    camera.position.set(0, 0, 400);
+    camera.position.set(0, 0, 1000);
     camera.up = new THREE.Vector3( 0, 1, 0 );
     camera.lookAt(0, 0, 0);
 
@@ -649,7 +649,7 @@ class App extends React.Component {
             </div>
             <div className="ui-pane-content">
               {!this.state.pickedObjectData || !this.state.pickedObjectData.building_id?
-                (<p>{PICK_ON_CLICK? 'Click on a building' : 'Mouse over a building'}</p>) : this.renderBuildingProps()
+                (<p><em>{PICK_ON_CLICK? 'Click on a building' : 'Mouse over a building'}</em></p>) : this.renderBuildingProps()
               }
             </div>
             <div className="ui-pane-bottom"></div>

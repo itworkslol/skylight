@@ -6,8 +6,8 @@ const MAP_RENDER_DIST = 1000; // m
 const buildingLodFadeIn = 200.0 // m
 const buildingLodFadeOut = 400.0 // m
 
-const LAT_LONG_ORIGIN = {lat: -33.887, long: 151.179}; // Sydney
-const BUILDING_LEVEL_HEIGHT = 4.0;
+const LAT_LONG_ORIGIN = {lat: -33.865, long: 151.210}; // Sydney
+const BUILDING_LEVEL_HEIGHT = 4.0; // default
 
 const DEBUG_BUILDINGS = false;
 
