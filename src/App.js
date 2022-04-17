@@ -651,7 +651,7 @@ class App extends React.Component {
             opacity: 0.8,
           }}>
           <div><strong><a href="https://github.com/JaphethLim/skylight">Skylight</a></strong> pre-pre-alpha</div>
-          <div>Map data © <a href="https://openstreetmap.org/contributors">OpenStreetMap contributors</a></div>
+          <div>Map data © <a href="http://osm.org/copyright">OpenStreetMap contributors</a></div>
         </div>
 
         <div id="ui-overlay">
