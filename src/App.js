@@ -16,6 +16,7 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import shadowIcon from 'leaflet/dist/images/marker-shadow.png';
 
 import * as THREE from 'three';
+import ThreeStats from 'three/examples/jsm/libs/stats.module.js';
 import { MyMapControls } from './MyMapControls';
 import { Paper } from "react-three-paper";
 import buildingTextureImage from './building texture.png';
@@ -279,6 +280,7 @@ function threeMainSetup(stateChangeCallbacks) {
           displacementScale: ELEVATION_MAP.elevationScale,
           displacementBias: ELEVATION_MAP.minElevation,
           normalMap: elevation.normal,
+          shininess: 0,
         }));
         const mesh = new THREE.Mesh(ground, material).translateZ(-0.1);
         mesh.translateX(tileX + tileWidth/2).translateY(tileY - tileHeight/2);
@@ -382,9 +384,13 @@ function threeMainSetup(stateChangeCallbacks) {
         }
         // twilight hack
         const twilightHA = 0.5 * 15*DEG;
-        ambientLight.intensity = 0.1 + 0.2 * Math.sqrt(Math.max(0, Math.sin((altitudeAngle + twilightHA) * Math.PI / (Math.PI + 2*twilightHA))));
-        ambientLight.color.b = ambientLight.intensity;
-        ambientLight.color.g = 1 - (1 - ambientLight.intensity)/2;
+        const twilightLevel = Math.sqrt(Math.max(0, Math.sin((altitudeAngle + twilightHA) * Math.PI / (Math.PI + 2*twilightHA))));
+        const nightLevel = Math.min(Math.exp(-4*(altitudeAngle + twilightHA)), 1);
+        ambientLight.intensity = 0.3 * Math.max(twilightLevel, nightLevel);
+        ambientLight.color.r = Math.min(1, Math.max(2*twilightLevel, 1 - nightLevel));
+        ambientLight.color.g = 1 - (1 - twilightLevel)/2;
+        ambientLight.color.b = Math.max(twilightLevel/2, nightLevel);
+        //console.log(`ambient tw=${twilightLevel}, nt=${nightLevel}`);
 
         if (UserRenderSettings.DrawDebugGeometry) {
           // debug sun disk
