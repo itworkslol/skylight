@@ -111,25 +111,25 @@ class BuildingMap {
       if (min_lat === null || lat < min_lat) min_lat = lat;
       if (min_long === null || long < min_long) min_long = long;
     }
-    const [min_latM, min_longM] = screenCoords(latLongToRenderMetres(min_lat, min_long));
+    const [min_y, min_x] = screenCoords(latLongToRenderMetres(min_lat, min_long));
 
     const shape = new THREE.Shape();
     if (DEBUG_BUILDINGS) console.log(`Outlining building: ${describeBuilding(this.buildings.get(building_id))}`);
-    if (DEBUG_BUILDINGS) console.log(`* Origin: ${min_latM}, ${min_longM}`);
+    if (DEBUG_BUILDINGS) console.log(`* Origin: ${min_y}, ${min_x}`);
     for (let i = 0; i <= nodes.length; i++) {
       let {lat, lon: long} = this.nodes.get(nodes[i % nodes.length]);
-      let [latM, longM] = screenCoords(latLongToRenderMetres(lat, long));
-      latM -= min_latM;
-      longM -= min_longM;
+      let [y, x] = screenCoords(latLongToRenderMetres(lat, long));
+      y -= min_y;
+      x -= min_x;
       if (i === 0) {
-        if (DEBUG_BUILDINGS) console.log(`* ${latM}, ${longM}`);
-        shape.moveTo(latM, longM);
+        if (DEBUG_BUILDINGS) console.log(`* ${y}, ${x}`);
+        shape.moveTo(y, x);
       } else {
-        if (DEBUG_BUILDINGS) console.log(`* ${latM}, ${longM}`);
-        shape.lineTo(latM, longM);
+        if (DEBUG_BUILDINGS) console.log(`* ${y}, ${x}`);
+        shape.lineTo(y, x);
       }
     }
-    return [shape, [min_latM, min_longM]];
+    return [shape, {min_y, min_x, min_lat, min_long}];
   }
 
   buildingLevels(building_id) {

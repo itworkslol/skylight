@@ -2,7 +2,7 @@ import './App.css';
 import {
   LAT_LONG_ORIGIN, BuildingMap,
   latLongToRenderMetres, renderMetresToLatLong,
-  MAP_RENDER_DIST, osmTileList, osmTileToLatLong, osmTileSize, osmTileUrl,
+  MAP_RENDER_DIST, osmTileList, osmTileToLatLong, osmTileToBBox, osmTileSize, osmTileUrl,
 } from './BuildingMap.js';
 import WorldClock from './WorldClock.js';
 import _ from 'lodash';
@@ -11,14 +11,18 @@ import React from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 
-import markerIcon from 'leaflet/dist/images/marker-icon.png'
-import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
-import shadowIcon from 'leaflet/dist/images/marker-shadow.png'
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import shadowIcon from 'leaflet/dist/images/marker-shadow.png';
 
 import * as THREE from 'three';
 import { MyMapControls } from './MyMapControls';
 import { Paper } from "react-three-paper";
-import buildingTextureImage from './building texture.png'
+import buildingTextureImage from './building texture.png';
+
+import ELEVATION_MAP from './elevation/ElevationMap.js';
+import ElevationTextureImage from './elevation/ElevationMap.png';
+import ElevationNormalsImage from './elevation/ElevationNormal.png';
 
 import GUI from 'lil-gui';
 import { Rnd } from 'react-rnd';
@@ -168,7 +172,7 @@ function threeMainSetup(stateChangeCallbacks) {
     controls.screenSpacePanning = false;
     controls.maxDistance = 2000;
 
-    function createScene(mapCentre) {
+    async function createScene(mapCentre) {
       // Setup scene
       const scene = new THREE.Scene();
       const sceneMemory = [];
@@ -185,17 +189,100 @@ function threeMainSetup(stateChangeCallbacks) {
         scene.add(cube);
       }
 
+      const elevationTexture = memManaged(textureLoader.load(ElevationTextureImage));
+      const elevationNormals = memManaged(textureLoader.load(ElevationNormalsImage));
+
+      // threejs material doesn't support different UVs for the elevation map.
+      // Work around this by manually cropping elevation tiles.
+      async function loadImageData(url) {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const bitmap = await createImageBitmap(blob, {
+          premultiplyAlpha: 'none',
+          colorSpaceConversion: 'none',
+        });
+        return bitmap;
+      }
+
+      // ugh, threejs doesn't let us use ImageBitmap as a texture directly
+      function bitmapToCanvas(bitmap) {
+        const ctx = document.createElement('canvas').getContext('2d');
+        ctx.canvas.width = bitmap.width;
+        ctx.canvas.height = bitmap.height;
+        ctx.fillStyle = '#000';
+        ctx.drawImage(bitmap, 0, 0);
+        return ctx;
+      }
+      function canvasToTexture(ctx) {
+        return memManaged(new THREE.CanvasTexture(ctx.canvas));
+      }
+      function bitmapToTexture(bitmap) {
+        return canvasToTexture(bitmapToCanvas(bitmap));
+      }
+
+      const elevationTextureData = memManaged(await loadImageData(ElevationTextureImage));
+      const elevationNormalsData = memManaged(await loadImageData(ElevationNormalsImage));
+
+      function elevationTextureCoord(loc) {
+        const {lat, long} = loc;
+        const lat2tex = elevationTextureData.height / (ELEVATION_MAP.maxLat - ELEVATION_MAP.minLat);
+        const long2tex = elevationTextureData.width / (ELEVATION_MAP.maxLong - ELEVATION_MAP.minLong);
+        // note: raw (float) coords
+        return {
+          v: (ELEVATION_MAP.maxLat - lat) * lat2tex,
+          u: (long - ELEVATION_MAP.minLong) * long2tex,
+        };
+      }
+
+      const getElevationAt = (() => {
+        const ctx = bitmapToCanvas(elevationTextureData);
+        const data = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+        const stride = Math.round(data.data.length / (ctx.canvas.width * ctx.canvas.height));
+        console.log(`elevation canvas stride: ${stride}`);
+        return function(loc) {
+          const {u, v} = elevationTextureCoord(loc);
+          return data.data[stride * (Math.round(v) * ctx.canvas.width + Math.round(u))] * ELEVATION_MAP.elevationScale/255 + ELEVATION_MAP.minElevation;
+        };
+      })();
+
+      async function elevationTile(tileInfo) {
+        const {nw, se} = osmTileToBBox(tileInfo);
+        const {u: wU_, v: nV_} = elevationTextureCoord(nw);
+        const nV = Math.max(0, Math.round(nV_));
+        const wU = Math.max(0, Math.round(wU_));
+        const {u: eU_, v: sV_} = elevationTextureCoord(se);
+        const sV = Math.min(elevationTextureData.height, Math.round(sV_) + 1);
+        const eU = Math.min(elevationTextureData.width, Math.round(eU_) + 1);
+        console.log(`elevationTile crop: (${nw.long} - ${se.long}) × (${se.lat} - ${nw.lat}) -> (${wU}-${eU}) × (${nV}-${sV})`);
+        const displacement = memManaged(await createImageBitmap(elevationTextureData, wU, sV, eU-wU, nV-sV));
+        const normal = memManaged(await createImageBitmap(elevationNormalsData, wU, sV, eU-wU, nV-sV));
+        console.log(`elevationTile size: ${displacement.width} × ${displacement.height}`);
+        return { displacement: bitmapToTexture(displacement), normal: bitmapToTexture(normal) };
+      }
+
       const groundTiles = osmTileList(mapCentre.lat, mapCentre.long, 500);
       for (let tileInfo of groundTiles) {
         const {lat, long} = osmTileToLatLong(tileInfo);
         const [tileY, tileX] = latLongToRenderMetres(lat, long);
         const {x: tileWidth, y: tileHeight} = osmTileSize(tileInfo);
-        const ground = memManaged(new THREE.PlaneGeometry(tileWidth, tileHeight));
+        const TILE_SEGMENT_METRES = 90; // current elevation map resolution
+        const tileSegmentsX = Math.ceil(tileWidth / TILE_SEGMENT_METRES);
+        const tileSegmentsY = Math.ceil(tileHeight / TILE_SEGMENT_METRES);
+        const ground = memManaged(new THREE.PlaneGeometry(tileWidth, tileHeight, tileSegmentsX, tileSegmentsY));
         const tileUrl = osmTileUrl(tileInfo);
         console.log(`loading map tile: ${tileUrl} at world coords: (${lat}, ${long}), screen coords: (${tileX}, ${tileY}) + (${tileWidth}, ${tileHeight})`);
-        const material = memManaged(new THREE.MeshLambertMaterial({map: textureLoader.load(tileUrl)}));
+        const mapTexture = memManaged(textureLoader.load(tileUrl));
+        const elevation = await elevationTile(tileInfo);
+        const material = memManaged(new THREE.MeshPhongMaterial({
+          map: (UserRenderSettings.DrawDebugGeometry ? elevation.displacement : mapTexture),
+          displacementMap: elevation.displacement,
+          displacementScale: ELEVATION_MAP.elevationScale,
+          displacementBias: ELEVATION_MAP.minElevation,
+          normalMap: elevation.normal,
+        }));
         const mesh = new THREE.Mesh(ground, material).translateZ(-0.1);
         mesh.translateX(tileX + tileWidth/2).translateY(tileY - tileHeight/2);
+        mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.opaqueToPick = true;
         scene.add(mesh);
@@ -223,7 +310,8 @@ function threeMainSetup(stateChangeCallbacks) {
       const [mapCentreY, mapCentreX] = latLongToRenderMetres(mapCentre.lat, mapCentre.long);
       for (const [building_id] of buildingMap.buildings)
       {
-        const [footprint, [originX, originY]] = buildingMap.buildingFootprint(building_id);
+        // Note: swaps x/y to render space
+        const [footprint, {min_x: originY, min_y: originX, min_lat, min_long}] = buildingMap.buildingFootprint(building_id);
         if (!(Math.sqrt(Math.pow(originX - mapCentreX, 2) + Math.pow(originY - mapCentreY, 2)) < MAP_RENDER_DIST)) {
           continue;
         }
@@ -247,9 +335,12 @@ function threeMainSetup(stateChangeCallbacks) {
           geometry = memManaged(new THREE.ShapeGeometry( footprint ));
         }
 
+        const buildingElevation = getElevationAt({lat: min_lat, long: min_long});
+        //console.log(`building elevation = ${buildingElevation}`);
+
         // building faces
         const mesh = new THREE.Mesh(geometry, buildingMaterial);
-        mesh.position.set(originX, originY, 0);
+        mesh.position.set(originX, originY, buildingElevation);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.pickData = {building_id, pickMaterial: pickBuildingMaterial, pickObject: mesh};
@@ -260,7 +351,7 @@ function threeMainSetup(stateChangeCallbacks) {
           const edges = memManaged(new THREE.EdgesGeometry( geometry ));
           const edgesMat = memManaged(new THREE.LineBasicMaterial({color: 0x000000 }));
           const edgesMesh = new THREE.LineSegments(edges, edgesMat);
-          edgesMesh.position.set(originX, originY, 0);
+          edgesMesh.position.set(originX, originY, buildingElevation);
           edgesMesh.pickData = {pickObject: mesh}; // redirect to main object
           scene.add(edgesMesh);
         }
@@ -418,16 +509,18 @@ function threeMainSetup(stateChangeCallbacks) {
       setSpinner(true);
       sceneData.scene = undefined;
       // reset in the next event cycle so that the spinner appears first
-      setTimeout(() => {
+      setTimeout(async () => {
           if (sceneData.scene !== undefined) {
             for (let obj of sceneData.sceneMemory) {
-              obj.dispose();
+              if (obj.dispose) obj.dispose();
+              else if (obj.close) obj.close();
+              else throw obj;
             }
             for (let remove of sceneData.removeCanvasListeners) {
               remove();
             }
           }
-          sceneData = createScene(sceneData.mapCentre);
+          sceneData = await createScene(sceneData.mapCentre);
           mvpGui_DebugFlag.onChange(() => { resetScene(); });
         }, 1);
     }
@@ -651,7 +744,8 @@ class App extends React.Component {
             opacity: 0.8,
           }}>
           <div><strong><a href="https://github.com/JaphethLim/skylight" target="_blank">Skylight</a></strong> pre-pre-alpha</div>
-          <div>Map data © <a href="http://osm.org/copyright" target="_blank">OpenStreetMap contributors</a></div>
+          <div>Map data © <a href="https://osm.org/copyright" target="_blank">OpenStreetMap contributors</a></div>
+          <div>Elevation data © <a href="https://srtm.csi.cgiar.org" target="_blank">CIAT SRTM</a></div>
         </div>
 
         <div id="ui-overlay">
