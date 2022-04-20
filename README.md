@@ -2,6 +2,8 @@
 
 The building data currently only covers Sydney. This can be replaced with data for any other place.
 
+[**Live Demo**](https://it.works.lol/skylight/)
+
 # License
 
 [MIT license](https://opensource.org/licenses/MIT)
