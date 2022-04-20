@@ -2,16 +2,28 @@
 
 The building data currently only covers Sydney. This can be replaced with data for any other place.
 
+# License
+
+[MIT license](https://opensource.org/licenses/MIT)
+
+Data sources have their own licenses:
+* Map and building data: [OpenStreetMap](https://osm.org/copyright)
+* Elevation data: [SRTMv4](https://srtm.csi.cgiar.org)
+
 # Development
 
 This project was ejected from [Create React App](https://github.com/facebook/create-react-app).
 
-## Update or replace buildings
+## Update building data
 
 Run `building_query.py >foo.json` to re-download latest OSM building data from the [Overpass API](https://overpass-api.de).
 
 The coordinates can be changed to another city to download buildings there instead.\
 Also update `LAT_LONG_ORIGIN` in the app to default to the new city location.
+
+## Update map tiles
+
+No work required. The app queries [OSM tile server](https://wiki.openstreetmap.org/wiki/Tiles) for map tiles at any location.
 
 ## Elevation data
 
