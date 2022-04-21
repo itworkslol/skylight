@@ -7,6 +7,8 @@ import {
 import WorldClock from './WorldClock.js';
 import _ from 'lodash';
 import React from 'react';
+import 'bootstrap/dist/css/bootstrap.min.css';
+import { Modal, ModalHeader, ModalBody, ModalFooter, Button } from 'reactstrap';
 
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -134,16 +136,20 @@ function stateToHash(mapCentre, clock, controls) {
 }
 function hashToState(h, mapCentre, clock, controls) {
   const s = new URLSearchParams(h);
-  mapCentre.lat = Number.parseFloat(s.get('lat'));
-  mapCentre.long = Number.parseFloat(s.get('long'));
-  const [y, x] = latLongToRenderMetres(mapCentre.lat, mapCentre.long);
-  controls.target = new THREE.Vector3(x, y, 0);
-  clock.setHour(Number.parseFloat(s.get('h')));
-  clock.setDay(Number.parseInt(s.get('d')));
+  if (s.has('lat') && s.has('long')) {
+    mapCentre.lat = Number.parseFloat(s.get('lat'));
+    mapCentre.long = Number.parseFloat(s.get('long'));
+    const [y, x] = latLongToRenderMetres(mapCentre.lat, mapCentre.long);
+    controls.target = new THREE.Vector3(x, y, 0);
+  }
+  if (s.has('h') && s.has('d')) {
+    clock.setHour(Number.parseFloat(s.get('h')));
+    clock.setDay(Number.parseInt(s.get('d')));
+  }
 }
 
 function threeMainSetup(stateChangeCallbacks) {
-  const {onPickObject, onSunAngleChanged, onFrame, setSpinner} = stateChangeCallbacks;
+  const {onResetScene, onPickObject, onSunAngleChanged, onFrame, setSpinner} = stateChangeCallbacks;
 
   async function threeMain(canvas)
   {
@@ -310,6 +316,7 @@ function threeMainSetup(stateChangeCallbacks) {
       const pickBuildingMaterial = [pickRoofMaterial, pickWallMaterial];
 
       const [mapCentreY, mapCentreX] = latLongToRenderMetres(mapCentre.lat, mapCentre.long);
+      let numBuildingsDrawn = 0;
       for (const [building_id] of buildingMap.buildings)
       {
         // Note: swaps x/y to render space
@@ -357,6 +364,8 @@ function threeMainSetup(stateChangeCallbacks) {
           edgesMesh.pickData = {pickObject: mesh}; // redirect to main object
           scene.add(edgesMesh);
         }
+
+        numBuildingsDrawn++;
       }
 
       // Lighting
@@ -503,6 +512,7 @@ function threeMainSetup(stateChangeCallbacks) {
       }
 
       // done creating scene
+      onResetScene(numBuildingsDrawn);
       return { mapCentre, scene, sceneMemory, updateSunPosition, removeCanvasListeners };
     }
 
@@ -688,6 +698,8 @@ class App extends React.Component {
       sunAngle: null,
       fpsCounter: new FPSCounter(),
       spinnerVisible: true, // initial load
+      outOfRange: false,
+      showWelcome: window.localStorage.getItem('welcomed') === null,
     };
   }
 
@@ -703,10 +715,19 @@ class App extends React.Component {
     this.state.fpsCounter.onFrame();
   }
   
+  closeWelcome() {
+    window.localStorage.setItem('welcomed', '1');
+    this.setState({showWelcome: false});
+  }
+
   setSpinner(visible) {
     // HACK also immediately update DOM, don't wait for React
     document.getElementById('canvas-spinner').style.display = (visible? 'block' : 'none');
     this.setState({spinnerVisible: visible});
+  }
+
+  onResetScene(numBuildingsDrawn) {
+    this.setState({outOfRange: numBuildingsDrawn == 0});
   }
 
   renderBuildingProps() {
@@ -731,6 +752,7 @@ class App extends React.Component {
       <>
         <Paper
             script={threeMainSetup({
+              onResetScene: (x) => thisApp.onResetScene(x),
               onPickObject: (x) => thisApp.onPickObject(x),
               onSunAngleChanged: (x) => thisApp.onSunAngleChanged(x),
               onFrame: () => thisApp.onFrame(),
@@ -738,6 +760,21 @@ class App extends React.Component {
             })}
             className="map-canvas"
         />
+
+        <Modal isOpen={thisApp.state.showWelcome}>
+          <ModalHeader>
+            Intro to Skylight
+          </ModalHeader>
+          <ModalBody>
+            <ul>
+              <li>Pan the map to rotate the view.</li>
+              <li>Drag the map to change location. Buildings will update automatically.</li>
+            </ul>
+          </ModalBody>
+          <ModalFooter>
+            <Button color="primary" onClick={()=>{thisApp.closeWelcome();return false;}}>Got it</Button>
+          </ModalFooter>
+        </Modal>
 
         <div id="license-info" style={{
             position: 'absolute',
@@ -754,20 +791,34 @@ class App extends React.Component {
           <div>Elevation data © <a href="https://srtm.csi.cgiar.org" target="_blank">CIAT SRTM</a></div>
         </div>
 
+        <div id="out-of-range-popup" style={{
+            display: (thisApp.state.outOfRange? 'block' : 'none'),
+            position: 'absolute',
+            zIndex: 9,
+            left: '45vw',
+            top: '45vh',
+            right: '45vw',
+            bottom: '45wh',
+            padding: '20px',
+            border: '3px solid white',
+            backgroundColor: '#ffc107',
+          }}>
+          <p>No building data for this area!</p>
+          <p>This demo only supports inner Sydney right now. Move the map or <a href="">reload the page</a> to reset.</p>
+        </div>
+
         <div id="ui-overlay">
-          <div>
-            <div id="canvas-spinner" style={{
-                display: (thisApp.state.spinnerVisible? 'block' : 'none'),
-                position: 'absolute',
-                zIndex: 9,
-                fontSize: '10vw', // lol works?
-                left: '45vw',
-                top: '45vh',
-                padding: '20px',
-                backgroundColor: 'darkgrey',
-                color: 'white',
-              }}>⏳</div>
-          </div>
+          <div id="canvas-spinner" style={{
+              display: (thisApp.state.spinnerVisible? 'block' : 'none'),
+              position: 'absolute',
+              zIndex: 9,
+              fontSize: '10vw', // lol works?
+              left: '45vw',
+              top: '45vh',
+              padding: '20px',
+              backgroundColor: 'darkgrey',
+              color: 'white',
+            }}>⏳</div>
 
           <Rnd
             className="ui-pane"
