@@ -30,9 +30,6 @@ import ElevationNormalsImage from './elevation/ElevationNormal.png';
 import GUI from 'lil-gui';
 import { Rnd } from 'react-rnd';
 
-import * as Plot from "@observablehq/plot";
-import { PlotFigure } from 'plot-react';
-
 import fullMapData from './sydney_city_buildings.json' // TODO split
 
 /* This code is needed to properly load the images in the Leaflet CSS */
@@ -196,9 +193,6 @@ function threeMainSetup(stateChangeCallbacks) {
         scene.add(cube);
       }
 
-      const elevationTexture = memManaged(textureLoader.load(ElevationTextureImage));
-      const elevationNormals = memManaged(textureLoader.load(ElevationNormalsImage));
-
       // threejs material doesn't support different UVs for the elevation map.
       // Work around this by manually cropping elevation tiles.
       async function loadImageData(url) {
@@ -327,16 +321,12 @@ function threeMainSetup(stateChangeCallbacks) {
 
         const height = buildingMap.buildingHeight(building_id) ?? 0;
         let geometry;
-        let heightScale = 1;
         if (height > 0) {
           // define the geometry with 1 level/m so that the wall texture works with default UV
           const extrudeSettings = {
             steps: 1,
             depth: buildingMap.buildingLevels(building_id) ?? 1,
             bevelEnabled: false,
-            bevelThickness: 0.5,
-            bevelSize: 0.5,
-            bevelSegments: 1,
           };
           geometry = memManaged(new THREE.ExtrudeGeometry( footprint, extrudeSettings ));
           geometry.scale(1, 1, height / extrudeSettings.depth);
@@ -643,14 +633,6 @@ function OSM() {
     </MapContainer>
   )
 }
-
-const sampleSunAngle = [];
-for (let minute = 0; minute <= 1440; minute++) {
-  const hour = minute/60.0;
-  const {altitudeAngle, hourAngle} = worldClock.sunAngle(1, hour);
-  sampleSunAngle.push({hour, altitudeAngle: altitudeAngle*RAD, hourAngle: hourAngle*RAD});
-}
-const sunPlot = Plot.dot(sampleSunAngle, {x: 'hourAngle', y: 'altitudeAngle'});
 
 class FPSCounter {
   constructor() {
