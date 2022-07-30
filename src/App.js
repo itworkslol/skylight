@@ -242,7 +242,16 @@ function threeMainSetup(stateChangeCallbacks) {
         console.log(`elevation canvas stride: ${stride}`);
         return function(loc) {
           const {u, v} = elevationTextureCoord(loc);
-          return data.data[stride * (Math.round(v) * ctx.canvas.width + Math.round(u))] * ELEVATION_MAP.elevationScale/255 + ELEVATION_MAP.minElevation;
+          // Interpolate nearest pixels
+          let avgPix = 0.0;
+          for (let x = 0; x <= 1; x++) {
+            const iv = x === 0? Math.floor(v) : Math.min(Math.ceil(v), ctx.canvas.height-1);
+            for (let y = 0; y <= 1; y++) {
+              const iu = y === 0? Math.floor(u) : Math.min(Math.ceil(u), ctx.canvas.width-1);
+              avgPix += data.data[stride * (iv * ctx.canvas.width + iu)] / 4.0;
+            }
+          }
+          return avgPix * ELEVATION_MAP.elevationScale/255 + ELEVATION_MAP.minElevation;
         };
       })();
 
