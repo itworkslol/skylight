@@ -18,9 +18,12 @@ This project was ejected from [Create React App](https://github.com/facebook/cre
 
 ## Update building data
 
-Run `building_query.py >foo.json` to re-download latest OSM building data from the [Overpass API](https://overpass-api.de).
+Run `building_query.py --city sydney --output sydney_city_buildings.json` to
+re-download latest OSM building data from the [Overpass API](https://overpass-api.de).
 
-The coordinates can be changed to another city to download buildings there instead.\
+You can add other cities in the script source, if you know their bounding-box coordinates.
+The [OSM homepage](https://openstreetmap.org) has an `Export` tool that is handy for finding this.
+
 Also update `LAT_LONG_ORIGIN` in the app to default to the new city location.
 
 ## Update map tiles
@@ -38,6 +41,19 @@ To cover another area:
 1. _Optional:_ Clean any funny pixels or missing data in the heightmap.
 1. Save the heightmap to `ElevationMap.png`. Make sure this is **8-bit grayscale** otherwise the code may do weird things.
 1. Update the normal map at `ElevationNormal.png`. Make sure you render this with the correct scale. SRTMv4 data scale is 6000 pixel : 5° lat/long.
+
+A sample ImageMagick script for the elevation map:
+
+    convert hongkong/srtm_59_08.tif -crop 600x600+4800+3000 -fx 'x=mod(u, 0.5)*65536/1024; if((x>=0)&&(x<0.95), x, 0)' -depth 8 hongkong/ElevationMap.png
+
+This clamps the max elevation to 1024 m (actually 1020 due to rounding); change this for your area as appropriate.
+
+Sample instructions for generating the normal map in Gimp v2:
+1. Open the elevation map
+1. Enable RGB channels (Image menu -> Mode -> RGB)
+1. Open the normal map dialog (Filters -> Generic -> Normal map)
+1. Set the correct Z scale. This should be roughly `<max_elevation> / 90` since SRTM data is 90m / pixel.
+   If far away from the equator, scale up the X channel separately since pixels will be narrower in the X axis.
 
 ## Available Scripts
 
