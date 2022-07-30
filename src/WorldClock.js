@@ -48,11 +48,21 @@ class WorldClock {
   {
     day = day?? this.day;
     hour = hour?? this.hour;
+    function relaxAsin(x) {
+      if (x > 1.0 && x < 1.00001) x = 1.0;
+      if (x < -1.0 && x > -1.00001) x = -1.0;
+      return Math.asin(x);
+    }
+    function relaxAcos(x) {
+      if (x > 1.0 && x < 1.00001) x = 1.0;
+      if (x < -1.0 && x > -1.00001) x = -1.0;
+      return Math.acos(x);
+    }
     // Ref: https://www.itacanet.org/the-sun-as-a-source-of-energy/
     const declination = 23.45*DEG * Math.sin(2*Math.PI * (284 + day + hour / 24.0) / 365.25);
     const hourAngle = (12 - hour) * 15*DEG; // approx
-    const altitudeAngle = Math.asin(Math.sin(declination) * Math.sin(this.latDeg*DEG) + Math.cos(declination) * Math.cos(hourAngle) * Math.cos(this.latDeg*DEG));
-    const azimuth = Math.acos(Math.min(1.0, (Math.sin(declination) * Math.cos(this.latDeg*DEG) - Math.cos(declination) * Math.sin(this.latDeg*DEG) * Math.cos(hourAngle)) / Math.cos(altitudeAngle)));
+    const altitudeAngle = relaxAsin(Math.sin(declination) * Math.sin(this.latDeg*DEG) + Math.cos(declination) * Math.cos(hourAngle) * Math.cos(this.latDeg*DEG));
+    const azimuth = relaxAcos(Math.min(1.0, (Math.sin(declination) * Math.cos(this.latDeg*DEG) - Math.cos(declination) * Math.sin(this.latDeg*DEG) * Math.cos(hourAngle)) / Math.cos(altitudeAngle)));
     return {hourAngle, altitudeAngle, azimuth: (hourAngle > 0 ? azimuth : -azimuth)};
   }
 };
