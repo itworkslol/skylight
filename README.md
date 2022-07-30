@@ -54,6 +54,7 @@ Sample instructions for generating the normal map in Gimp v2:
 1. Open the normal map dialog (Filters -> Generic -> Normal map)
 1. Set the correct Z scale. This should be roughly `<max_elevation> / 90` since SRTM data is 90m / pixel.
    If far away from the equator, scale up the X channel separately since pixels will be narrower in the X axis.
+1. You may need to enable `Flip Y` to get correct north/south lighting (FIXME: why?)
 
 ## Available Scripts
 
