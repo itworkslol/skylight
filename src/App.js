@@ -618,7 +618,7 @@ function threeMainSetup(stateChangeCallbacks) {
           worldClock.setHour((Math.round(worldClock.hour*10) + 1) % 240 / 10.0);
           if (worldClock.hour < 0.0001) {
             worldClock.setHour(0);
-            worldClock.setDay((worldClock.day + 1) % 365 + 1);
+            worldClock.setDay((worldClock.day + 1) % 365);
           }
           const {altitudeAngle} = worldClock.sunAngle();
           if (altitudeAngle > 0) break;
