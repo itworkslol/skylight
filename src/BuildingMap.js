@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import _ from 'lodash';
 
 const OSM_ZOOM = 15;
 const MAP_RENDER_DIST = 1000; // m
@@ -74,12 +75,15 @@ function osmTileUrl(tileInfo) {
 }
 
 function describeBuilding(building) {
-  let name;
+  let name = [];
   if (building['tags'] !== undefined) {
-    if (building['tags']['name']) name = building['tags']['name'];
-    else if (building['tags']['building'] && building['tags']['building'] !== 'yes') name = building['tags']['building'];
+    if (building['tags']['addr:housename']) name.push(building['tags']['addr:housename']);
+
+    if (building['tags']['name']) name.push(building['tags']['name']);
+    else if (building['tags']['building'] && building['tags']['building'] !== 'yes') name.push(building['tags']['building']);
   }
-  return name ?? '';
+  const sep = ' • ';
+  return _.join(name, sep);
 }
 
 function screenCoords(c) {
