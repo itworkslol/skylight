@@ -259,15 +259,20 @@ function threeMainSetup(stateChangeCallbacks) {
         return function(loc) {
           const {u, v} = elevationTextureCoord(loc);
           // Interpolate nearest pixels
-          let avgPix = 0.0;
+          let sum = 0, weight = 0;
           for (let x = 0; x <= 1; x++) {
             const iv = x === 0? Math.floor(v) : Math.min(Math.ceil(v), ctx.canvas.height-1);
+            const wv = x === 0? 1 - (v - iv) : 1 - (iv - v);
             for (let y = 0; y <= 1; y++) {
               const iu = y === 0? Math.floor(u) : Math.min(Math.ceil(u), ctx.canvas.width-1);
-              avgPix += data.data[stride * (iv * ctx.canvas.width + iu)] / 4.0;
+              const wu = y === 0? 1 - (u - iu) : 1 - (iu - u);
+              sum += data.data[stride * (iv * ctx.canvas.width + iu)] * wv * wu;
+              weight += wv * wu;
             }
           }
-          return avgPix * ELEVATION_MAP.elevationScale/255 + ELEVATION_MAP.minElevation;
+          const h = (sum / weight) * ELEVATION_MAP.elevationScale/255 + ELEVATION_MAP.minElevation;
+          //console.log(`building elevation: ${loc.lat},${loc.long} -> ${u},${v} = ${h} m`);
+          return h;
         };
       })();
 
@@ -360,7 +365,7 @@ function threeMainSetup(stateChangeCallbacks) {
         }
 
         const buildingElevation = getElevationAt({lat: min_lat, long: min_long});
-        //console.log(`building elevation = ${buildingElevation}`);
+        //console.log(`building elevation ${building_id} = ${buildingElevation} m`);
 
         // building faces
         const mesh = new THREE.Mesh(geometry, buildingMaterial);
