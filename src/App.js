@@ -78,13 +78,16 @@ class PickHelper {
     this.pickPosition = null; // or {x, y}
   }
 
-  pick(normalizedPosition, scene, camera) {
+  resetPick() {
     // restore the color if there is a picked object
     if (this.pickedObject) {
       this.pickedObject.material = this.pickedObjectSavedColor;
       this.pickedObject = undefined;
     }
+  }
 
+  pick(normalizedPosition, scene, camera) {
+    this.resetPick();
     if (!normalizedPosition) return;
 
     // cast a ray through the frustum
@@ -95,14 +98,19 @@ class PickHelper {
     for (let i = 0; i < intersectedObjects.length; i++) {
       if (intersectedObjects[i].object.opaqueToPick) return;
       if (intersectedObjects[i].object.pickData) {
-        this.pickedObject = intersectedObjects[i].object.pickData.pickObject;
-        // save its color
-        this.pickedObjectSavedColor = this.pickedObject.material;
-        // swap to pick color
-        this.pickedObject.material = this.pickedObject.pickData.pickMaterial;
+        this.setPickedObject(intersectedObjects[i].object.pickData.pickObject);
         return this.pickedObject;
       }
     }
+  }
+
+  setPickedObject(obj) {
+    this.resetPick();
+    this.pickedObject = obj;
+    // save its color
+    this.pickedObjectSavedColor = this.pickedObject.material;
+    // swap to pick color
+    this.pickedObject.material = this.pickedObject.pickData.pickMaterial;
   }
 
   setPickPosition(canvas, event) {
@@ -123,13 +131,16 @@ const PICK_ON_CLICK = true;
 
 let neverWrittenHash = true; // initial load
 
-function stateToHash(mapCentre, clock, controls) {
+function stateToHash(mapCentre, pickedObjectId, clock, controls) {
   const [lat, long] = renderMetresToLatLong(controls.target.x, controls.target.y);
   const s = new URLSearchParams({
     lat: lat.toFixed(5), long: long.toFixed(5),
     h: clock.hour.toString(), d: clock.day.toString(),
   })
-  return s.toString()
+  if (pickedObjectId !== null) {
+    s.set('highlight', pickedObjectId.toString());
+  }
+  return s.toString();
 }
 function hashToState(h, mapCentre, clock, controls) {
   const s = new URLSearchParams(h);
@@ -143,6 +154,11 @@ function hashToState(h, mapCentre, clock, controls) {
     clock.setHour(Number.parseFloat(s.get('h')));
     clock.setDay(Number.parseInt(s.get('d')));
   }
+  let pickedObjectId = null;
+  if (s.has('highlight')) {
+    pickedObjectId = Number.parseInt(s.get('highlight'));
+  }
+  return {pickedObjectId};
 }
 
 function threeMainSetup(stateChangeCallbacks) {
@@ -176,7 +192,7 @@ function threeMainSetup(stateChangeCallbacks) {
     controls.screenSpacePanning = false;
     controls.maxDistance = 2000;
 
-    async function createScene(mapCentre) {
+    async function createScene(mapCentre, pickedObjectId) {
       // Setup scene
       const scene = new THREE.Scene();
       const sceneMemory = [];
@@ -364,6 +380,12 @@ function threeMainSetup(stateChangeCallbacks) {
           scene.add(edgesMesh);
         }
 
+        // Is this an initially picked object?
+        if (pickedObjectId !== null && building_id === pickedObjectId) {
+          pickHelper.setPickedObject(mesh);
+          onPickObject(pickHelper.pickedObject);
+        }
+
         numBuildingsDrawn++;
       }
 
@@ -489,9 +511,10 @@ function threeMainSetup(stateChangeCallbacks) {
         }
         addRemovableEventListener('mousedown', mousedownHandler);
         function mouseupHandler(event) {
-          if (event.button === 0 && mouseDownAt && event.clientX == mouseDownAt.x && event.clientY == mouseDownAt.y) {
+          if (event.button === 0 && mouseDownAt && event.clientX === mouseDownAt.x && event.clientY === mouseDownAt.y) {
             pickHelper.setPickPosition(canvas, event);
             pickHelper.pick(pickHelper.pickPosition, scene, camera);
+            sceneData.pickedObjectId = pickHelper.pickedObject?.pickData?.building_id ?? null;
             onPickObject(pickHelper.pickedObject);
             mouseDownAt = null;
           }
@@ -512,13 +535,14 @@ function threeMainSetup(stateChangeCallbacks) {
 
       // done creating scene
       onResetScene(numBuildingsDrawn);
-      return { mapCentre, scene, sceneMemory, updateSunPosition, removeCanvasListeners };
+      return { mapCentre, pickedObjectId, scene, sceneMemory, updateSunPosition, removeCanvasListeners };
     }
 
-    let sceneData = { mapCentre: LAT_LONG_ORIGIN, scene: undefined };
+    let sceneData = { mapCentre: LAT_LONG_ORIGIN, pickedObjectId: null, scene: undefined };
     function resetScene() {
       if (neverWrittenHash && window.location.hash) {
-        hashToState(window.location.hash.substr(1), sceneData.mapCentre, worldClock, controls);
+        let {pickedObjectId} = hashToState(window.location.hash.substring(1), sceneData.mapCentre, worldClock, controls);
+        sceneData.pickedObjectId = pickedObjectId;
       }
 
       setSpinner(true);
@@ -535,7 +559,7 @@ function threeMainSetup(stateChangeCallbacks) {
               remove();
             }
           }
-          sceneData = await createScene(sceneData.mapCentre);
+          sceneData = await createScene(sceneData.mapCentre, sceneData.pickedObjectId);
           mvpGui_DebugFlag.onChange(() => { resetScene(); });
         }, 1);
     }
@@ -545,7 +569,7 @@ function threeMainSetup(stateChangeCallbacks) {
     const writeUrlHash = _.debounce((h) => { window.location.hash = h; neverWrittenHash = false; },
                                     500, {trailing: true});
     function updateStateHash() {
-      const newHash = '#' + stateToHash(sceneData.mapCentre, worldClock, controls);
+      const newHash = '#' + stateToHash(sceneData.mapCentre, sceneData.pickedObjectId, worldClock, controls);
       if (newHash !== lastHash) {
         writeUrlHash(newHash);
       }
@@ -718,7 +742,7 @@ class App extends React.Component {
   }
 
   onResetScene(numBuildingsDrawn) {
-    this.setState({outOfRange: numBuildingsDrawn == 0});
+    this.setState({outOfRange: numBuildingsDrawn === 0});
   }
 
   renderBuildingProps() {
