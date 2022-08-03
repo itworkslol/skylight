@@ -30,7 +30,7 @@ import ElevationNormalsImage from './elevation/hongkong/ElevationNormal.png';
 import GUI from 'lil-gui';
 import { Rnd } from 'react-rnd';
 
-import fullMapData from './hongkong_city_buildings.json' // TODO split
+const fullMapData = import('./hongkong_city_buildings.json'); // async
 
 /* This code is needed to properly load the images in the Leaflet CSS */
 delete L.Icon.Default.prototype._getIconUrl;
@@ -39,8 +39,6 @@ L.Icon.Default.mergeOptions({
   iconUrl: markerIcon,
   shadowUrl: shadowIcon,
 });
-
-let buildingMap = new BuildingMap(fullMapData);
 
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
@@ -177,6 +175,8 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
     if (threeSingleton.initId > 1) {
       console.warn(`warning: threejs init called #${threeSingleton.initId} times, grumble grumble`);
     }
+
+    let buildingMap = new BuildingMap(await fullMapData);
 
     const pickHelper = new PickHelper();
 
@@ -554,7 +554,7 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
       }
 
       // done creating scene
-      onResetScene(numBuildingsDrawn);
+      onResetScene(buildingMap, numBuildingsDrawn);
       return { mapCentre, pickedObjectId, scene, sceneMemory, updateSunPosition, removeCanvasListeners };
     }
 
@@ -752,6 +752,7 @@ class App extends React.Component {
       fpsCounter: new FPSCounter(),
       spinnerVisible: true, // initial load
       outOfRange: false,
+      buildingMap: null, // async init
       showWelcome: window.localStorage.getItem('welcomed') === null,
     };
     // Paper.js seems to call init twice. This is a hack to detect it and only render the most recent.
@@ -781,21 +782,22 @@ class App extends React.Component {
     this.setState({spinnerVisible: visible});
   }
 
-  onResetScene(numBuildingsDrawn) {
-    this.setState({outOfRange: numBuildingsDrawn === 0});
+  onResetScene(buildingMap, numBuildingsDrawn) {
+    this.setState({buildingMap, outOfRange: numBuildingsDrawn === 0});
   }
 
   renderBuildingProps() {
     const building_id = this.state.pickedObjectData.building_id;
+    const buildingMap = this.state.buildingMap;
     return (
       <>
         <p><abbr title="OpenStreetMaps">OSM</abbr> ID: {building_id}</p>
-        <p>Building name: {buildingMap.buildingName(building_id)} </p>
-        <p>Building levels: {buildingMap.buildingLevels(building_id) ?? 'unknown'} </p>
-        <p>Building height: {(buildingMap.buildingHeight(building_id) ?? 'unknown') + (buildingMap.buildingProp(building_id, 'height')? '' : ' (est.)')} </p>
+        <p>Building name: {buildingMap?.buildingName(building_id)} </p>
+        <p>Building levels: {buildingMap?.buildingLevels(building_id) ?? 'unknown'} </p>
+        <p>Building height: {(buildingMap?.buildingHeight(building_id) ?? 'unknown') + (buildingMap?.buildingProp(building_id, 'height')? '' : ' (est.)')} </p>
         <p>Address: {
-          (buildingMap.buildingProp(building_id, 'addr:housenumber')??'') + ' ' +
-            (buildingMap.buildingProp(building_id, 'addr:street')??'')
+          (buildingMap?.buildingProp(building_id, 'addr:housenumber')??'') + ' ' +
+            (buildingMap?.buildingProp(building_id, 'addr:street')??'')
           }</p>
       </>
     )
