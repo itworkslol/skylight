@@ -165,16 +165,18 @@ function hashToState(h, mapCentre, clock, controls) {
   return {pickedObjectId};
 }
 
-function threeMainSetup(stateChangeCallbacks, initSingleton) {
+// Hack to work around Paper calling our init code multiple times
+const DEBOUNCE_THREEJS_INIT_MS = 500;
+
+function threeMainSetup(stateChangeCallbacks, threeSingleton) {
   const {onResetScene, onPickObject, onSunAngleChanged, onFrame, setSpinner} = stateChangeCallbacks;
 
   async function threeMain(canvas)
   {
     console.log('threeMain');
-    if (initSingleton.alreadyInit) {
-      console.warn('warning: threejs main called repeatedly, grumble grumble');
+    if (threeSingleton.initId > 1) {
+      console.warn(`warning: threejs init called #${threeSingleton.initId} times, grumble grumble`);
     }
-    initSingleton.alreadyInit = true;
 
     const pickHelper = new PickHelper();
 
@@ -557,30 +559,50 @@ function threeMainSetup(stateChangeCallbacks, initSingleton) {
     }
 
     let sceneData = { mapCentre: LAT_LONG_ORIGIN, pickedObjectId: null, scene: undefined };
+    // sceneToDestroy is set to sceneData.scene when switching scenes (and .scene needs to be unset)
+    function destroyScene(sceneToDestroy) {
+      if (sceneToDestroy === undefined) {
+        sceneToDestroy = sceneData.scene;
+      }
+      if (sceneToDestroy === undefined) {
+        console.log('destroyScene(noop)');
+      } else {
+        console.log('destroyScene()');
+        for (let obj of sceneData.sceneMemory) {
+          if (obj.dispose) obj.dispose();
+          else if (obj.close) obj.close();
+          else throw obj;
+        }
+        for (let remove of sceneData.removeCanvasListeners) {
+          remove();
+        }
+        sceneData.removeCanvasListeners = [];
+        sceneData.scene = undefined;
+      }
+    }
+
     function resetScene() {
-      console.log('resetscene()');
+      threeSingleton.initId++;
+      const resetId = threeSingleton.initId;
+      console.log(`resetScene(#${resetId})`);
       if (neverWrittenHash && window.location.hash) {
         let {pickedObjectId} = hashToState(window.location.hash.substring(1), sceneData.mapCentre, worldClock, controls);
         sceneData.pickedObjectId = pickedObjectId;
       }
 
       setSpinner(true);
+      const sceneToDestroy = sceneData.scene;
       sceneData.scene = undefined;
       // reset in the next event cycle so that the spinner appears first
       setTimeout(async () => {
-          if (sceneData.scene !== undefined) {
-            for (let obj of sceneData.sceneMemory) {
-              if (obj.dispose) obj.dispose();
-              else if (obj.close) obj.close();
-              else throw obj;
-            }
-            for (let remove of sceneData.removeCanvasListeners) {
-              remove();
-            }
+          destroyScene(sceneToDestroy);
+          if (resetId != threeSingleton.initId) {
+            console.warn(`resetScene(#${resetId}) - stale, cancelled!`);
+            return;
           }
           sceneData = await createScene(sceneData.mapCentre, sceneData.pickedObjectId);
           mvpGui_DebugFlag.onChange(() => { console.log('DebugFlag toggled'); resetScene(); });
-        }, 1);
+        }, DEBOUNCE_THREEJS_INIT_MS);
     }
     console.log('initial resetScene');
     resetScene();
@@ -661,12 +683,7 @@ function threeMainSetup(stateChangeCallbacks, initSingleton) {
       updateStateHash();
     }
 
-    //...Any cleanup youd like (optional)
-    function cleanup() {
-
-    }
-
-    return { render, cleanup }
+    return { render, destroyScene }
   }
 
   return threeMain;
@@ -737,8 +754,8 @@ class App extends React.Component {
       outOfRange: false,
       showWelcome: window.localStorage.getItem('welcomed') === null,
     };
-    // Paper.js seems to call init twice. This is a hack to detect it (but do nothing for now).
-    this.initSingleton = { alreadyInit: false, };
+    // Paper.js seems to call init twice. This is a hack to detect it and only render the most recent.
+    this.threeSingleton = { initId: 0, };
   }
 
   onPickObject(pickedObject) {
@@ -795,7 +812,7 @@ class App extends React.Component {
               onSunAngleChanged: (x) => thisApp.onSunAngleChanged(x),
               onFrame: () => thisApp.onFrame(),
               setSpinner: (visible) => thisApp.setSpinner(visible),
-            }, thisApp.initSingleton)}
+            }, thisApp.threeSingleton)}
             className="map-canvas"
         />
 
