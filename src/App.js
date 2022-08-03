@@ -79,6 +79,7 @@ class PickHelper {
   }
 
   resetPick() {
+    console.log(`resetPick(${this.pickedObject?.pickData?.building_id})`);
     // restore the color if there is a picked object
     if (this.pickedObject) {
       this.pickedObject.material = this.pickedObjectSavedColor;
@@ -87,6 +88,7 @@ class PickHelper {
   }
 
   pick(normalizedPosition, scene, camera) {
+    console.log(`pick(${normalizedPosition.x},${normalizedPosition.y},${normalizedPosition.z})`);
     this.resetPick();
     if (!normalizedPosition) return;
 
@@ -105,6 +107,7 @@ class PickHelper {
   }
 
   setPickedObject(obj) {
+    console.log(`setPickedObject(${obj?.pickData?.building_id})`);
     this.resetPick();
     this.pickedObject = obj;
     // save its color
@@ -114,6 +117,7 @@ class PickHelper {
   }
 
   setPickPosition(canvas, event) {
+    console.log('setPickPosition');
     const pos = getCanvasRelativePosition(canvas, event);
     this.pickPosition = {
       x: (pos.x / canvas.width ) *  2 - 1,
@@ -122,11 +126,11 @@ class PickHelper {
   }
 
   clearPickPosition() {
+    console.log('clearPickPosition');
     this.pickPosition = null;
   }
 }
 
-const pickHelper = new PickHelper();
 const PICK_ON_CLICK = true;
 
 let neverWrittenHash = true; // initial load
@@ -161,11 +165,19 @@ function hashToState(h, mapCentre, clock, controls) {
   return {pickedObjectId};
 }
 
-function threeMainSetup(stateChangeCallbacks) {
+function threeMainSetup(stateChangeCallbacks, initSingleton) {
   const {onResetScene, onPickObject, onSunAngleChanged, onFrame, setSpinner} = stateChangeCallbacks;
 
   async function threeMain(canvas)
   {
+    console.log('threeMain');
+    if (initSingleton.alreadyInit) {
+      console.warn('warning: threejs main called repeatedly, grumble grumble');
+    }
+    initSingleton.alreadyInit = true;
+
+    const pickHelper = new PickHelper();
+
     // Setup canvas
     const renderer = new THREE.WebGLRenderer({
         canvas,
@@ -193,6 +205,7 @@ function threeMainSetup(stateChangeCallbacks) {
     controls.maxDistance = 2000;
 
     async function createScene(mapCentre, pickedObjectId) {
+      console.log(`createScene(latlong=(${mapCentre.lat},${mapCentre.long}))`);
       // Setup scene
       const scene = new THREE.Scene();
       const sceneMemory = [];
@@ -284,10 +297,10 @@ function threeMainSetup(stateChangeCallbacks) {
         const {u: eU_, v: sV_} = elevationTextureCoord(se);
         const sV = Math.min(elevationTextureData.height, Math.round(sV_) + 1);
         const eU = Math.min(elevationTextureData.width, Math.round(eU_) + 1);
-        console.log(`elevationTile crop: (${nw.long} - ${se.long}) × (${se.lat} - ${nw.lat}) -> (${wU}-${eU}) × (${nV}-${sV})`);
+        //console.log(`elevationTile crop: (${nw.long} - ${se.long}) × (${se.lat} - ${nw.lat}) -> (${wU}-${eU}) × (${nV}-${sV})`);
         const displacement = memManaged(await createImageBitmap(elevationTextureData, wU, sV, eU-wU, nV-sV));
         const normal = memManaged(await createImageBitmap(elevationNormalsData, wU, sV, eU-wU, nV-sV));
-        console.log(`elevationTile size: ${displacement.width} × ${displacement.height}`);
+        //console.log(`elevationTile size: ${displacement.width} × ${displacement.height}`);
         return { displacement: bitmapToTexture(displacement), normal: bitmapToTexture(normal) };
       }
 
@@ -545,6 +558,7 @@ function threeMainSetup(stateChangeCallbacks) {
 
     let sceneData = { mapCentre: LAT_LONG_ORIGIN, pickedObjectId: null, scene: undefined };
     function resetScene() {
+      console.log('resetscene()');
       if (neverWrittenHash && window.location.hash) {
         let {pickedObjectId} = hashToState(window.location.hash.substring(1), sceneData.mapCentre, worldClock, controls);
         sceneData.pickedObjectId = pickedObjectId;
@@ -565,9 +579,10 @@ function threeMainSetup(stateChangeCallbacks) {
             }
           }
           sceneData = await createScene(sceneData.mapCentre, sceneData.pickedObjectId);
-          mvpGui_DebugFlag.onChange(() => { resetScene(); });
+          mvpGui_DebugFlag.onChange(() => { console.log('DebugFlag toggled'); resetScene(); });
         }, 1);
     }
+    console.log('initial resetScene');
     resetScene();
 
     let lastHash = window.location.hash; // for debounce to work, we must compare the actual last state
@@ -638,6 +653,7 @@ function threeMainSetup(stateChangeCallbacks) {
         if (panDistance > MAP_RENDER_DIST) {
           const [lat, long] = renderMetresToLatLong(controls.target.x, controls.target.y);
           sceneData.mapCentre = {lat, long};
+          console.log('map pan resetScene');
           resetScene();
         }
       }
@@ -721,6 +737,8 @@ class App extends React.Component {
       outOfRange: false,
       showWelcome: window.localStorage.getItem('welcomed') === null,
     };
+    // Paper.js seems to call init twice. This is a hack to detect it (but do nothing for now).
+    this.initSingleton = { alreadyInit: false, };
   }
 
   onPickObject(pickedObject) {
@@ -777,7 +795,7 @@ class App extends React.Component {
               onSunAngleChanged: (x) => thisApp.onSunAngleChanged(x),
               onFrame: () => thisApp.onFrame(),
               setSpinner: (visible) => thisApp.setSpinner(visible),
-            })}
+            }, thisApp.initSingleton)}
             className="map-canvas"
         />
 
@@ -788,7 +806,8 @@ class App extends React.Component {
           <ModalBody>
             <ul>
               <li>Pan the map to rotate the view.</li>
-              <li>Drag the map to change location. Buildings will update automatically.</li>
+              <li>Scroll / pinch to zoom (depends on device).</li>
+              <li>Drag the map to change location. Distant buildings will load on demand.</li>
             </ul>
           </ModalBody>
           <ModalFooter>
