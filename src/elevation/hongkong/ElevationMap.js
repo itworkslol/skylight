@@ -5,6 +5,7 @@ const ELEVATION_MAP = {
   maxLong: 114.50,
   minElevation: 0,
   elevationScale: 1020,
+  areaName: 'Hong Kong Central',
 };
 
 export default ELEVATION_MAP;

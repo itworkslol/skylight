@@ -5,6 +5,7 @@ const ELEVATION_MAP = {
   maxLong: 151.5,
   minElevation: 0,
   elevationScale: 255,
+  areaName: 'Inner Sydney',
 };
 
 export default ELEVATION_MAP;

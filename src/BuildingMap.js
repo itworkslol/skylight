@@ -7,8 +7,8 @@ const MAP_RENDER_DIST = 1000; // m
 const buildingLodFadeIn = 200.0 // m
 const buildingLodFadeOut = 400.0 // m
 
-//const LAT_LONG_ORIGIN = {lat: -33.865, long: 151.210}; // Sydney
-const LAT_LONG_ORIGIN = {lat: 22.2802, long: 114.1595}; // Hongkong
+const LAT_LONG_ORIGIN = {lat: -33.865, long: 151.210}; // Sydney
+//const LAT_LONG_ORIGIN = {lat: 22.2802, long: 114.1595}; // Hongkong
 const BUILDING_LEVEL_HEIGHT = 3.0; // default
 
 const DEBUG_BUILDINGS = false;

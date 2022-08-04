@@ -23,14 +23,14 @@ import { MyMapControls } from './MyMapControls';
 import { Paper } from "react-three-paper";
 import buildingTextureImage from './building texture.png';
 
-import ELEVATION_MAP from './elevation/hongkong/ElevationMap.js';
-import ElevationTextureImage from './elevation/hongkong/ElevationMap.png';
-import ElevationNormalsImage from './elevation/hongkong/ElevationNormal.png';
+import ELEVATION_MAP from './elevation/sydney/ElevationMap.js';
+import ElevationTextureImage from './elevation/sydney/ElevationMap.png';
+import ElevationNormalsImage from './elevation/sydney/ElevationNormal.png';
 
 import GUI from 'lil-gui';
 import { Rnd } from 'react-rnd';
 
-const fullMapData = import('./hongkong_city_buildings.json'); // async
+const fullMapData = import('./sydney_city_buildings.json'); // async
 
 /* This code is needed to properly load the images in the Leaflet CSS */
 delete L.Icon.Default.prototype._getIconUrl;
@@ -861,7 +861,7 @@ class App extends React.Component {
             backgroundColor: '#ffc107',
           }}>
           <p>No building data for this area!</p>
-          <p>This demo only supports Hong Kong Central right now. Move the map or <a href="">reload the page</a> to reset.</p>
+          <p>This demo only supports {ELEVATION_MAP.areaName} right now. Move the map or <a href="">reload the page</a> to reset.</p>
         </div>
 
         <div id="ui-overlay">
