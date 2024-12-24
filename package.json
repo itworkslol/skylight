@@ -84,7 +84,7 @@
   },
   "scripts": {
     "start": "node scripts/start.js",
-    "build": "PUBLIC_URL=/skylight/hk node scripts/build.js",
+    "build": "PUBLIC_URL=/skylight node scripts/build.js",
     "test": "node scripts/test.js",
     "deploy": "rsync -av -e 'ssh -p5928' ./build/ it.works.lol:www/itworkslol/skylight/ --delete"
   },
