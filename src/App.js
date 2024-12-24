@@ -230,8 +230,10 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
         const res = await fetch(url);
         const blob = await res.blob();
         const bitmap = await createImageBitmap(blob, {
-          premultiplyAlpha: 'none',
-          colorSpaceConversion: 'none',
+          options: {
+            premultiplyAlpha: 'none',
+            colorSpaceConversion: 'none',
+          }
         });
         return bitmap;
       }
@@ -596,7 +598,7 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
       // reset in the next event cycle so that the spinner appears first
       setTimeout(async () => {
           destroyScene(sceneToDestroy);
-          if (resetId != threeSingleton.initId) {
+          if (resetId !== threeSingleton.initId) {
             console.warn(`resetScene(#${resetId}) - stale, cancelled!`);
             return;
           }

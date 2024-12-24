@@ -408,7 +408,6 @@ module.exports = function (webpackEnv) {
                   isEnvDevelopment &&
                     shouldUseReactRefresh &&
                     require.resolve('react-refresh/babel'),
-                  "@babel/plugin-proposal-nullish-coalescing-operator",
                 ].filter(Boolean),
                 // This is a feature of `babel-loader` for webpack (not Babel itself).
                 // It enables caching results in ./node_modules/.cache/babel-loader/
@@ -430,7 +429,7 @@ module.exports = function (webpackEnv) {
                 configFile: false,
                 compact: false,
                 presets: ['@babel/preset-env'],
-                plugins: ["@babel/plugin-proposal-nullish-coalescing-operator"],
+                plugins: [],
                 cacheDirectory: true,
                 // See #6846 for context on why cacheCompression is disabled
                 cacheCompression: false,
