@@ -1,6 +1,6 @@
 import './App.css';
 import {
-  LAT_LONG_ORIGIN, BuildingMap,
+  LAT_LONG_ORIGINS, BuildingMap,
   latLongToRenderMetres, renderMetresToLatLong,
   MAP_RENDER_DIST, osmTileList, osmTileToLatLong, osmTileToBBox, osmTileSize, osmTileUrl,
 } from './BuildingMap.js';
@@ -23,14 +23,26 @@ import { MyMapControls } from './MyMapControls';
 import { Paper } from "react-three-paper";
 import buildingTextureImage from './building texture.png';
 
-import ELEVATION_MAP from './elevation/sydney/ElevationMap.js';
-import ElevationTextureImage from './elevation/sydney/ElevationMap.png';
-import ElevationNormalsImage from './elevation/sydney/ElevationNormal.png';
-
 import GUI from 'lil-gui';
 import { Rnd } from 'react-rnd';
 
-const fullMapData = import('./sydney_city_buildings.json'); // async
+// Lazy loading for city data.
+// Even lazy imports must be top-level for webpack to work, so we do it here.
+// https://webpack.js.org/guides/lazy-loading/
+const CITY_DATA = {
+  sydney: () => { return {
+    buildings: import('./sydney_city_buildings.json'),
+    elevation_box: import('./elevation/sydney/ElevationMap.js'),
+    elevation_texture: import('./elevation/sydney/ElevationMap.png'),
+    elevation_normals: import('./elevation/sydney/ElevationNormal.png'),
+  }; },
+  hongkong: () => { return {
+    buildings: import('./hongkong_city_buildings.json'),
+    elevation_box: import('./elevation/hongkong/ElevationMap.js'),
+    elevation_texture: import('./elevation/hongkong/ElevationMap.png'),
+    elevation_normals: import('./elevation/hongkong/ElevationNormal.png'),
+  }; },
+};
 
 /* This code is needed to properly load the images in the Leaflet CSS */
 delete L.Icon.Default.prototype._getIconUrl;
@@ -42,23 +54,6 @@ L.Icon.Default.mergeOptions({
 
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
-
-const worldClock = new WorldClock(LAT_LONG_ORIGIN.lat, LAT_LONG_ORIGIN.long);
-
-const UserRenderSettings = {
-  DrawDebugGeometry: false,
-};
-
-const mvpGui = new GUI();
-const mvpGui_Day = mvpGui.add(worldClock, 'day', 1, 365, 1);
-const mvpGui_DayName = mvpGui.add(worldClock, 'dayName');
-mvpGui_DayName.disable();
-const mvpGui_Hour = mvpGui.add(worldClock, 'hour', 0, 24, 0.1);
-mvpGui.add(worldClock, 'autoplay', ['', 'hour', 'day']);
-const mvpGui_DebugFlag = mvpGui.add(UserRenderSettings, 'DrawDebugGeometry', false);
-
-worldClock.setGuiControllers(mvpGui_Day, mvpGui_DayName, mvpGui_Hour);
-
 
 function getCanvasRelativePosition(canvas, event) {
   const rect = canvas.getBoundingClientRect();
@@ -133,10 +128,10 @@ const PICK_ON_CLICK = true;
 
 let neverWrittenHash = true; // initial load
 
-function stateToHash(mapCentre, pickedObjectId, clock, controls) {
-  const [lat, long] = renderMetresToLatLong(controls.target.x, controls.target.y);
+function stateToHash(city, location, pickedObjectId, clock) {
+  const {lat, long} = location;
   const s = new URLSearchParams({
-    lat: lat.toFixed(5), long: long.toFixed(5),
+    city: city, lat: lat.toFixed(5), long: long.toFixed(5),
     h: clock.hour.toString(), d: clock.day.toString(),
   })
   if (pickedObjectId !== null) {
@@ -144,12 +139,19 @@ function stateToHash(mapCentre, pickedObjectId, clock, controls) {
   }
   return s.toString();
 }
-function hashToState(h, mapCentre, clock, controls) {
+function hashToState(h, city, mapCentre, clock, controls, onCityChange) {
   const s = new URLSearchParams(h);
+  if (s.has('city')) {
+    let hashCity = s.get('city');
+    if (city !== hashCity) {
+      onCityChange(hashCity);
+      return {pickedObjectId: null};
+    }
+  }
   if (s.has('lat') && s.has('long')) {
     mapCentre.lat = Number.parseFloat(s.get('lat'));
     mapCentre.long = Number.parseFloat(s.get('long'));
-    const [y, x] = latLongToRenderMetres(mapCentre.lat, mapCentre.long);
+    const [y, x] = latLongToRenderMetres(LAT_LONG_ORIGINS[city], mapCentre.lat, mapCentre.long);
     controls.target = new THREE.Vector3(x, y, 0);
   }
   if (s.has('h') && s.has('d')) {
@@ -166,8 +168,12 @@ function hashToState(h, mapCentre, clock, controls) {
 // Hack to work around Paper calling our init code multiple times
 const DEBOUNCE_THREEJS_INIT_MS = 500;
 
-function threeMainSetup(stateChangeCallbacks, threeSingleton) {
-  const {onResetScene, onPickObject, onSunAngleChanged, onFrame, setSpinner} = stateChangeCallbacks;
+function threeMainSetup(city, stateChangeCallbacks, threeSingleton) {
+  const {onCityChange, onResetScene, onPickObject, onSunAngleChanged, onFrame, setSpinner} = stateChangeCallbacks;
+
+  const lat_long_origin = LAT_LONG_ORIGINS[city];
+
+  const { UserRenderSettings, worldClock, mvpGui_DebugFlag } = threeSingleton;
 
   async function threeMain(canvas)
   {
@@ -176,7 +182,20 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
       console.warn(`warning: threejs init called #${threeSingleton.initId} times, grumble grumble`);
     }
 
-    let buildingMap = new BuildingMap(await fullMapData);
+    const city_data = CITY_DATA[city]();
+    const {
+      buildings: buildings_lazy,
+      elevation_box: elevation_box_lazy,
+      elevation_texture: elevation_texture_lazy,
+      elevation_normals: elevation_normals_lazy,
+    } = city_data;
+
+    let buildingMap = new BuildingMap(await buildings_lazy, lat_long_origin);
+
+    const elevation_box = (await elevation_box_lazy).default;
+    console.log(`elevation box: ${JSON.stringify(elevation_box)}`);
+    const elevation_texture = (await elevation_texture_lazy).default;
+    const elevation_normals = (await elevation_normals_lazy).default;
 
     const pickHelper = new PickHelper();
 
@@ -254,17 +273,17 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
         return canvasToTexture(bitmapToCanvas(bitmap));
       }
 
-      const elevationTextureData = memManaged(await loadImageData(ElevationTextureImage));
-      const elevationNormalsData = memManaged(await loadImageData(ElevationNormalsImage));
+      const elevationTextureData = memManaged(await loadImageData(elevation_texture));
+      const elevationNormalsData = memManaged(await loadImageData(elevation_normals));
 
       function elevationTextureCoord(loc) {
         const {lat, long} = loc;
-        const lat2tex = elevationTextureData.height / (ELEVATION_MAP.maxLat - ELEVATION_MAP.minLat);
-        const long2tex = elevationTextureData.width / (ELEVATION_MAP.maxLong - ELEVATION_MAP.minLong);
+        const lat2tex = elevationTextureData.height / (elevation_box.maxLat - elevation_box.minLat);
+        const long2tex = elevationTextureData.width / (elevation_box.maxLong - elevation_box.minLong);
         // note: raw (float) coords
         return {
-          v: (ELEVATION_MAP.maxLat - lat) * lat2tex,
-          u: (long - ELEVATION_MAP.minLong) * long2tex,
+          v: (elevation_box.maxLat - lat) * lat2tex,
+          u: (long - elevation_box.minLong) * long2tex,
         };
       }
 
@@ -287,7 +306,7 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
               weight += wv * wu;
             }
           }
-          const h = (sum / weight) * ELEVATION_MAP.elevationScale/255 + ELEVATION_MAP.minElevation;
+          const h = (sum / weight) * elevation_box.elevationScale/255 + elevation_box.minElevation;
           //console.log(`building elevation: ${loc.lat},${loc.long} -> ${u},${v} = ${h} m`);
           return h;
         };
@@ -311,8 +330,8 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
       const groundTiles = osmTileList(mapCentre.lat, mapCentre.long, 500);
       for (let tileInfo of groundTiles) {
         const {lat, long} = osmTileToLatLong(tileInfo);
-        const [tileY, tileX] = latLongToRenderMetres(lat, long);
-        const {x: tileWidth, y: tileHeight} = osmTileSize(tileInfo);
+        const [tileY, tileX] = latLongToRenderMetres(lat_long_origin, lat, long);
+        const {x: tileWidth, y: tileHeight} = osmTileSize(lat_long_origin, tileInfo);
         const TILE_SEGMENT_METRES = 90; // current elevation map resolution
         const tileSegmentsX = Math.ceil(tileWidth / TILE_SEGMENT_METRES);
         const tileSegmentsY = Math.ceil(tileHeight / TILE_SEGMENT_METRES);
@@ -324,8 +343,8 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
         const material = memManaged(new THREE.MeshPhongMaterial({
           map: (UserRenderSettings.DrawDebugGeometry ? elevation.displacement : mapTexture),
           displacementMap: elevation.displacement,
-          displacementScale: ELEVATION_MAP.elevationScale,
-          displacementBias: ELEVATION_MAP.minElevation,
+          displacementScale: elevation_box.elevationScale,
+          displacementBias: elevation_box.minElevation,
           normalMap: elevation.normal,
           shininess: 0,
         }));
@@ -356,7 +375,7 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
       const pickRoofMaterial = memManaged(new THREE.MeshLambertMaterial({ color: 0xcccccc, emissive: 0x333399 }));
       const pickBuildingMaterial = [pickRoofMaterial, pickWallMaterial];
 
-      const [mapCentreY, mapCentreX] = latLongToRenderMetres(mapCentre.lat, mapCentre.long);
+      const [mapCentreY, mapCentreX] = latLongToRenderMetres(lat_long_origin, mapCentre.lat, mapCentre.long);
       let numBuildingsDrawn = 0;
       for (const [building_id] of buildingMap.buildings)
       {
@@ -560,7 +579,7 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
       return { mapCentre, pickedObjectId, scene, sceneMemory, updateSunPosition, removeCanvasListeners };
     }
 
-    let sceneData = { mapCentre: LAT_LONG_ORIGIN, pickedObjectId: null, scene: undefined };
+    let sceneData = { mapCentre: _.clone(lat_long_origin), pickedObjectId: null, scene: undefined };
     // sceneToDestroy is set to sceneData.scene when switching scenes (and .scene needs to be unset)
     function destroyScene(sceneToDestroy) {
       if (sceneToDestroy === undefined) {
@@ -588,7 +607,7 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
       const resetId = threeSingleton.initId;
       console.log(`resetScene(#${resetId})`);
       if (neverWrittenHash && window.location.hash) {
-        let {pickedObjectId} = hashToState(window.location.hash.substring(1), sceneData.mapCentre, worldClock, controls);
+        let {pickedObjectId} = hashToState(window.location.hash.substring(1), city, sceneData.mapCentre, worldClock, controls, onCityChange);
         sceneData.pickedObjectId = pickedObjectId;
       }
 
@@ -613,7 +632,8 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
     const writeUrlHash = _.debounce((h) => { window.location.hash = h; neverWrittenHash = false; },
                                     500, {trailing: true});
     function updateStateHash() {
-      const newHash = '#' + stateToHash(sceneData.mapCentre, sceneData.pickedObjectId, worldClock, controls);
+      const [lat, long] = renderMetresToLatLong(LAT_LONG_ORIGINS[city], controls.target.x, controls.target.y)
+      const newHash = '#' + stateToHash(city, {lat, long}, sceneData.pickedObjectId, worldClock);
       if (newHash !== lastHash) {
         writeUrlHash(newHash);
       }
@@ -671,14 +691,27 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
         onFrame();
         setSpinner(false);
 
-        // Redraw on map pan. For now, just reset everything.
-        const [mapCentreY, mapCentreX] = latLongToRenderMetres(sceneData.mapCentre.lat, sceneData.mapCentre.long);
-        const panDistance = new THREE.Vector2(mapCentreX, mapCentreY).distanceTo(new THREE.Vector2(controls.target.x, controls.target.y));
-        if (panDistance > MAP_RENDER_DIST) {
-          const [lat, long] = renderMetresToLatLong(controls.target.x, controls.target.y);
+        // HACK: handle external scene navigation
+        if (threeSingleton.navigateToNext) {
+          const {lat, long} = threeSingleton.navigateToNext;
           sceneData.mapCentre = {lat, long};
-          console.log('map pan resetScene');
+          controls.target.set(...latLongToRenderMetres(lat_long_origin, lat, long), 0);
+          console.log(`navigateToNext resetScene(${lat},${long})`);
+          window.location.hash = '';
           resetScene();
+          updateStateHash();
+          threeSingleton.navigateToNext = null;
+        }
+        else {
+          // Redraw on map pan. For now, just reset everything.
+          const [mapCentreY, mapCentreX] = latLongToRenderMetres(lat_long_origin, sceneData.mapCentre.lat, sceneData.mapCentre.long);
+          const panDistance = new THREE.Vector2(mapCentreX, mapCentreY).distanceTo(new THREE.Vector2(controls.target.x, controls.target.y));
+          if (panDistance > MAP_RENDER_DIST) {
+            const [lat, long] = renderMetresToLatLong(lat_long_origin, controls.target.x, controls.target.y);
+            sceneData.mapCentre = {lat, long};
+            console.log('map pan resetScene');
+            resetScene();
+          }
         }
       }
 
@@ -689,22 +722,6 @@ function threeMainSetup(stateChangeCallbacks, threeSingleton) {
   }
 
   return threeMain;
-}
-
-function OSM() {
-  return (
-    <MapContainer center={[LAT_LONG_ORIGIN.lat, LAT_LONG_ORIGIN.long]} zoom={16} scrollWheelZoom={true}>
-      <TileLayer
-        attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <Marker position={[LAT_LONG_ORIGIN.lat, LAT_LONG_ORIGIN.long]}>
-        <Popup>
-          A pretty CSS3 popup. <br /> Easily customizable.
-        </Popup>
-      </Marker>
-    </MapContainer>
-  )
 }
 
 class FPSCounter {
@@ -748,6 +765,10 @@ class FPSCounter {
 class App extends React.Component {
   constructor(props) {
     super(props);
+    // TODO: this tiny metadata doesn't need to be lazy
+    const {city} = this.props;
+    const elevation_box = CITY_DATA[city]().elevation_box;
+
     this.state = {
       pickedObjectData: null,
       sunAngle: null,
@@ -756,9 +777,39 @@ class App extends React.Component {
       outOfRange: false,
       buildingMap: null, // async init
       showWelcome: window.localStorage.getItem('welcomed') === null,
+      areaName: elevation_box.areaName,
     };
-    // Paper.js seems to call init twice. This is a hack to detect it and only render the most recent.
-    this.threeSingleton = { initId: 0, };
+
+    const UserRenderSettings = {
+      DrawDebugGeometry: false,
+    };
+
+    const lat_long_origin = {lat: LAT_LONG_ORIGINS[props.city].lat, long: LAT_LONG_ORIGINS[props.city].long};
+    const worldClock = new WorldClock(lat_long_origin.lat, lat_long_origin.long);
+
+    const mvpGui = new GUI();
+    const mvpGui_Day = mvpGui.add(worldClock, 'day', 1, 365, 1);
+    const mvpGui_DayName = mvpGui.add(worldClock, 'dayName');
+    mvpGui_DayName.disable();
+    const mvpGui_Hour = mvpGui.add(worldClock, 'hour', 0, 24, 0.1);
+    mvpGui.add(worldClock, 'autoplay', ['', 'hour', 'day']);
+    const mvpGui_DebugFlag = mvpGui.add(UserRenderSettings, 'DrawDebugGeometry', false);
+
+    worldClock.setGuiControllers(mvpGui_Day, mvpGui_DayName, mvpGui_Hour);
+
+    this.threeSingleton = {
+      // Paper.js seems to call init twice. This is a hack to detect it and only render the most recent.
+      initId: 0,
+
+      // For the same reason, create global render state here instead of in threeMainSetup.
+      UserRenderSettings,
+      worldClock,
+      mvpGui,
+      mvpGui_DebugFlag,
+
+      // Hack to control the scene from the outside. (TODO: should this be in this.state?)
+      navigateToNext: null,
+    };
   }
 
   onPickObject(pickedObject) {
@@ -805,18 +856,36 @@ class App extends React.Component {
     )
   }
 
+  resetLocation() {
+    this.threeSingleton.navigateToNext = LAT_LONG_ORIGINS[this.props.city];
+  }
+
   render() {
     const thisApp = this;
+    // check if city is valid
+    if (!CITY_DATA[this.props.city]) {
+      return (
+        <div>
+          <h1>Invalid city</h1>
+          <p>City not found: <pre>{this.props.city}</pre>. Please select a valid city from the dropdown.</p>
+        </div>
+      );
+    }
     return (
       <>
         <Paper
-            script={threeMainSetup({
-              onResetScene: (x) => thisApp.onResetScene(x),
-              onPickObject: (x) => thisApp.onPickObject(x),
-              onSunAngleChanged: (x) => thisApp.onSunAngleChanged(x),
-              onFrame: () => thisApp.onFrame(),
-              setSpinner: (visible) => thisApp.setSpinner(visible),
-            }, thisApp.threeSingleton)}
+            script={threeMainSetup(
+              this.props.city,
+              {
+                onResetScene: (x, y) => thisApp.onResetScene(x, y),
+                onPickObject: (x) => thisApp.onPickObject(x),
+                onSunAngleChanged: (x) => thisApp.onSunAngleChanged(x),
+                onFrame: () => thisApp.onFrame(),
+                setSpinner: (visible) => thisApp.setSpinner(visible),
+                onCityChange: (city) => thisApp.props.onCityChange(city),
+              },
+              thisApp.threeSingleton
+            )}
             className="map-canvas"
         />
 
@@ -863,7 +932,7 @@ class App extends React.Component {
             backgroundColor: '#ffc107',
           }}>
           <p>No building data for this area!</p>
-          <p>This demo only supports {ELEVATION_MAP.areaName} right now. Move the map or <a href="">reload the page</a> to reset.</p>
+          <p>Move the map or <button onClick={() => thisApp.resetLocation()}>reset location</button>.</p>
         </div>
 
         <div id="ui-overlay">
@@ -962,4 +1031,6 @@ class App extends React.Component {
   }
 }
 
-export default App;
+export {
+  App, CITY_DATA,
+};

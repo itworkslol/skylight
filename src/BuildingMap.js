@@ -7,23 +7,25 @@ const MAP_RENDER_DIST = 1000; // m
 const buildingLodFadeIn = 200.0 // m
 const buildingLodFadeOut = 400.0 // m
 
-const LAT_LONG_ORIGIN = {lat: -33.865, long: 151.210}; // Sydney
-//const LAT_LONG_ORIGIN = {lat: 22.2802, long: 114.1595}; // Hongkong
+const LAT_LONG_ORIGINS = {
+  sydney: {lat: -33.865, long: 151.210},
+  hongkong: {lat: 22.2802, long: 114.1595},
+};
 const BUILDING_LEVEL_HEIGHT = 3.0; // default
 
 const DEBUG_BUILDINGS = false;
 
 const RAD = Math.PI / 180;
 
-function latLongToRenderMetres(lat, long) {
+function latLongToRenderMetres(lat_long_origin, lat, long) {
   const R = 6370000;
-  const {lat: lat0, long: long0} = LAT_LONG_ORIGIN;
+  const {lat: lat0, long: long0} = lat_long_origin;
   return [(lat-lat0) * RAD * R, (long-long0) * RAD * R * Math.cos(lat0 * RAD)];
 }
 
-function renderMetresToLatLong(x, y) {
+function renderMetresToLatLong(lat_long_origin, x, y) {
   const R = 6370000;
-  const {lat: lat0, long: long0} = LAT_LONG_ORIGIN;
+  const {lat: lat0, long: long0} = lat_long_origin;
   return [y / R / RAD + lat0, x / Math.cos(lat0 * RAD) / R / RAD + long0];
 }
 
@@ -58,10 +60,10 @@ function osmTileToBBox(tileInfo) {
   return {nw: osmTileToLatLong(tileInfo), se: osmTileToLatLong({zoom, x: x+1, y: y+1})};
 }
 
-function osmTileSize(tileInfo) {
+function osmTileSize(lat_long_origin, tileInfo) {
   const {nw: {lat: nwLat, long: nwLong}, se: {lat: seLat, long: seLong}} = osmTileToBBox(tileInfo);
-  const [nwy, nwx] = latLongToRenderMetres(nwLat, nwLong);
-  const [sey, sex] = latLongToRenderMetres(seLat, seLong);
+  const [nwy, nwx] = latLongToRenderMetres(lat_long_origin, nwLat, nwLong);
+  const [sey, sex] = latLongToRenderMetres(lat_long_origin, seLat, seLong);
   return {x: sex - nwx, y: nwy - sey};
 }
 
@@ -92,9 +94,10 @@ function screenCoords(c) {
 }
 
 class BuildingMap {
-  constructor(osm_data) {
+  constructor(osm_data, lat_long_origin) {
     this.nodes = new Map();
     this.buildings = new Map();
+    this.lat_long_origin = lat_long_origin;
 
     for (const elem of osm_data['elements']) {
       if (elem['type'] === 'node') {
@@ -116,14 +119,14 @@ class BuildingMap {
       if (min_lat === null || lat < min_lat) min_lat = lat;
       if (min_long === null || long < min_long) min_long = long;
     }
-    const [min_y, min_x] = screenCoords(latLongToRenderMetres(min_lat, min_long));
+    const [min_y, min_x] = screenCoords(latLongToRenderMetres(this.lat_long_origin, min_lat, min_long));
 
     const shape = new THREE.Shape();
     if (DEBUG_BUILDINGS) console.log(`Outlining building: ${describeBuilding(this.buildings.get(building_id))}`);
     if (DEBUG_BUILDINGS) console.log(`* Origin: ${min_y}, ${min_x}`);
     for (let i = 0; i <= nodes.length; i++) {
       let {lat, lon: long} = this.nodes.get(nodes[i % nodes.length]);
-      let [y, x] = screenCoords(latLongToRenderMetres(lat, long));
+      let [y, x] = screenCoords(latLongToRenderMetres(this.lat_long_origin, lat, long));
       y -= min_y;
       x -= min_x;
       if (i === 0) {
@@ -181,7 +184,7 @@ class BuildingMap {
 }
 
 export {
-  LAT_LONG_ORIGIN, MAP_RENDER_DIST, BuildingMap,
+  LAT_LONG_ORIGINS, MAP_RENDER_DIST, BuildingMap,
   latLongToRenderMetres, renderMetresToLatLong,
   osmTileList, osmTileToLatLong, osmTileToBBox, osmTileSize, osmTileUrl,
 };

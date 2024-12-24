@@ -1,6 +1,6 @@
 **Skylight** is an app for checking shadows from nearby buildings at different times of day/year.
 
-The building data currently only covers Sydney. This can be replaced with data for any other place.
+The building data currently only covers Sydney and Hong Kong. Data for other cities can be added, see below for instructions.
 
 [**Live Demo**](https://it.works.lol/skylight/)
 
@@ -24,7 +24,7 @@ re-download latest OSM building data from the [Overpass API](https://overpass-ap
 You can add other cities in the script source, if you know their bounding-box coordinates.
 The [OSM homepage](https://openstreetmap.org) has an `Export` tool that is handy for finding this.
 
-Also update `LAT_LONG_ORIGIN` in the app to default to the new city location.
+Also update `LAT_LONG_ORIGINS` in the app to add the new city location.
 
 ## Update map tiles
 
@@ -34,7 +34,7 @@ No work required. The app queries [OSM tile server](https://wiki.openstreetmap.o
 
 Elevation data is derived from the [SRTMv4 dataset](https://srtm.csi.cgiar.org/srtmdata/), which is free for non-commercial use.
 
-To cover another area:
+To cover a new city:
 1. Download the GeoTIFF heightmap for your world region.
 1. Change the color depth to 8-bits (make sure to rescale the values as well, e.g. 0xff=255m or 2550m, the default scale covers 65536m!). Update [`ELEVATION_MAP.elevationScale`](./src/elevation/ElevationMap.js) with your new max-height.
 1. Crop the heightmap to your area of interest. Update [`ELEVATION_MAP`](./src/elevation/ElevationMap.js) lat/long values.
