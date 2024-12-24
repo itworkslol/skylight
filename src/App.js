@@ -844,7 +844,7 @@ class App extends React.Component {
             color: 'black',
             opacity: 0.8,
           }}>
-          <div><strong><a href="https://github.com/JaphethLim/skylight" target="_blank">Skylight</a></strong> pre-pre-alpha</div>
+          <div><strong><a href="https://github.com/itworkslol/skylight" target="_blank">Skylight</a></strong> pre-pre-alpha</div>
           <div>Map data © <a href="https://osm.org/copyright" target="_blank">OpenStreetMap contributors</a></div>
           <div>Elevation data © <a href="https://srtm.csi.cgiar.org" target="_blank">CIAT SRTM</a></div>
         </div>
